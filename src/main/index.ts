@@ -8,6 +8,7 @@ import { CH } from '../shared/ipc'
 import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { renderTextPngs } from './textBridge'
+import { startMcpServer, type McpHandle } from './mcp/server'
 import type { TextItem } from '../shared/model'
 import type { ExportOptions } from '../shared/ipc'
 
@@ -17,6 +18,8 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 
 let win: BrowserWindow | null = null
+let mcp: McpHandle | null = null
+const mcpConfigPath = (): string => join(app.getPath('userData'), 'mcp.json')
 const send = (ch: string, ...args: unknown[]): void => { if (win && !win.isDestroyed()) win.webContents.send(ch, ...args) }
 const editor = new Editor({
   state: (st) => send(CH.state, st),
@@ -108,6 +111,8 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(async () => {
   registerMediaProtocol()
   registerIpc()
+  mcp = await startMcpServer(() => editor.session)
+  await mcp.writeConfig(mcpConfigPath())
   const envDir = process.env.PEDIT_PROJECT_DIR
   try {
     if (envDir) await editor.openOrCreate(envDir)
@@ -124,6 +129,6 @@ app.whenReady().then(async () => {
 app.on('before-quit', (e) => {
   if ((app as unknown as { _flushed?: boolean })._flushed) return
   e.preventDefault()
-  void editor.flush().finally(() => { (app as unknown as { _flushed?: boolean })._flushed = true; app.quit() })
+  void Promise.allSettled([editor.flush(), mcp?.close()]).finally(() => { (app as unknown as { _flushed?: boolean })._flushed = true; app.quit() })
 })
 app.on('window-all-closed', () => app.quit())
