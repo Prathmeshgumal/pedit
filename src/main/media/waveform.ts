@@ -13,12 +13,12 @@ export function buildWaveform(input: string, out: string, signal?: AbortSignal):
     const peaks: number[] = []
     let cur = 0
     let n = 0
-    let rest = Buffer.alloc(0)
+    let rest: Buffer = Buffer.alloc(0)
     let err = ''
     const onAbort = (): void => { child.kill('SIGKILL') }
     signal?.addEventListener('abort', onAbort, { once: true })
     child.stdout.on('data', (c: Buffer) => {
-      const buf = rest.length ? Buffer.concat([rest, c]) : c
+      const buf: Buffer = rest.length ? Buffer.concat([rest, c]) : c
       const whole = buf.length - (buf.length % 4)
       for (let i = 0; i < whole; i += 4) {
         const v = Math.abs(buf.readFloatLE(i))
