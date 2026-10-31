@@ -7,7 +7,7 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 2. Story file (story.md) Claude edits from  ✅
 3. Fonts library (bundled + Claude can add Google Fonts) and caption/text style presets, text animations  ✅
 4. Filters & adjustments (built-in looks + Claude can create new ones, LUT .cube support), per-clip strength  ✅
-5. Transitions between clips (editor + Claude)  ⏳
+5. Transitions between clips (editor + Claude)  🟡 half done: model, export, clip-sound crossfades done; preview, editor picker and Claude tool not yet
 6. J-cut / L-cut (editor + Claude)  ⏳
 7. Handy cutting: blade tool (B) and a scissors button on the playhead  ⏳
 8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ⏳
@@ -35,3 +35,4 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - **Claude tools:** `list_filters`, `apply_filter` (strength 0–100, all clips by default, null removes), `adjust_color` (merge or `reset`), `create_filter`, `import_lut`. The timeline Claude reads now shows each clip's filter and adjustments.
 - **Export colour:** clips with a look are converted to RGB with BT.709 both ways (what browsers assume for HD video) for the LUT; clips without a look are untouched, so plain exports are exactly as before.
 - **Bug found by the test and fixed:** a look without a LUT file was ready instantly, which made the preview draw twice and keep the wrong (unfiltered) picture.
+- **Transitions (part 1):** a transition sits on the clip *after* a cut and makes the two clips overlap by its length (at most half of either clip), so the video gets shorter by that much, like CapCut. 18 types matching ffmpeg's `xfade` (cross dissolve, dip to black/white, soft wipes, wipes, slides, circle open/close, zoom in). Export uses `xfade` for transitions and `concat` for plain cuts; tested with real ffmpeg. Clip sound is now one piece per clip mixed together, crossfading under transitions; this also prepares J/L cuts (`audioCutMs`, logic + tests done). **Not yet:** the preview still shows transitions as a hard cut (the two-clip GPU blend is written but not wired in), and there's no editor picker or Claude tool for them yet.

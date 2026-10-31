@@ -147,6 +147,35 @@ describe('runExport', () => {
     expect(vigCorner[0]).toBeLessThan(plain[0] * 0.2)
   }, 120000)
 
+  it('transitions blend the two clips over their overlap, and the export is shorter by the overlap', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const mk = async (c: string, id: string): Promise<MediaItem> => {
+      const f = join(dir, `${id}.mp4`)
+      execFileSync(ffmpegPath(), ['-v', 'error', '-y', '-f', 'lavfi', '-i', `color=c=${c}:s=1920x1080:r=30:d=3`, '-f', 'lavfi', '-i', 'sine=f=440:d=3', '-pix_fmt', 'yuv420p', '-shortest', f])
+      return media(f, id)
+    }
+    const p = emptyProject('xf')
+    p.media = [await mk('red', 'r'), await mk('blue', 'b'), await mk('green', 'g')]
+    p.video = [
+      { id: 'c1', mediaId: 'r', startMs: 0, inMs: 0, outMs: 3000, volume: 1 },
+      { id: 'c2', mediaId: 'b', startMs: 2000, inMs: 0, outMs: 3000, volume: 1, transition: { type: 'wipeleft', durationMs: 1000 } },
+      { id: 'c3', mediaId: 'g', startMs: 4000, inMs: 0, outMs: 3000, volume: 1, transition: { type: 'fadeblack', durationMs: 1000 } }
+    ]
+    const out = join(dir, 'xf.mp4')
+    await runExport(p, { aspect: '16:9', resolution: 1080, fps: 30, quality: 'high', outPath: out },
+      { renderTextPngs: async () => ({}), enc, onProgress: () => {}, signal: new AbortController().signal, tempDir: dir })
+    expect(Number(probeJson(out).format.duration)).toBeCloseTo(7, 0)
+    const rgb = (t: number): Buffer => execFileSync(ffmpegPath(), ['-v', 'error', '-ss', String(t), '-i', out, '-frames:v', '1', '-vf', 'scale=192:108,format=rgb24', '-f', 'rawvideo', '-'])
+    const px = (b: Buffer, x: number, y: number): number[] => { const i = (y * 192 + x) * 3; return [b[i], b[i + 1], b[i + 2]] }
+    // halfway through the wipe: left side still red, right side already blue
+    const mid = rgb(2.5)
+    expect(px(mid, 20, 54)[0]).toBeGreaterThan(180); expect(px(mid, 20, 54)[2]).toBeLessThan(60)
+    expect(px(mid, 172, 54)[2]).toBeGreaterThan(180); expect(px(mid, 172, 54)[0]).toBeLessThan(60)
+    // the middle of a dip to black is (nearly) black
+    expect(Math.max(...px(rgb(4.5), 96, 54))).toBeLessThan(40)
+    expect(px(rgb(6), 96, 54)[1]).toBeGreaterThan(100) // then green
+  }, 120000)
+
   it('fast HDR export looks the same as tone-mapping at full size', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
     const p = await reel(); p.video = [p.video[0]]; p.text = []; p.audio = []

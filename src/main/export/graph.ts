@@ -1,6 +1,8 @@
 import type { Aspect, ItemId, MediaItem, Project } from '../../shared/model'
 import { ffTextAnim } from '../../shared/textAnim'
 import { vignetteAngle } from '../../shared/look'
+import { transitionMs } from '../../shared/transitions'
+import { clipAudioSegments } from '../../shared/clipAudio'
 import { IDENTITY_TRANSFORM, timelineDurationMs } from '../../shared/model'
 import { transformFilters } from '../../shared/transform'
 import { TONEMAP_VF } from '../media/color'
@@ -61,8 +63,6 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
   const args: string[] = ['-hide_banner', '-y']
   const fc: string[] = []
   let n = 0
-  const pairs: string[] = []
-
   for (const [i, v] of p.video.entries()) {
     const m = p.media.find((x) => x.id === v.mediaId)!
     const dur = sec(v.outMs - v.inMs)
@@ -71,14 +71,37 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
     // drop frames and shrink first: tone-mapping 4K120 HDR at full size is the slow part
     const vf = [`fps=${fps}`, ...transformFilters(v.transform ?? IDENTITY_TRANSFORM), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), ...lookFilters(looks[v.id]), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
     fc.push(`[${n}:v]${vf.join(',')}[v${i}]`)
-    if (m.hasAudio && m.kind === 'video') fc.push(`[${n}:a]${AFMT},atrim=duration=${dur},apad=whole_dur=${dur},asetpts=PTS-STARTPTS,volume=${v.volume}[a${i}]`)
-    else fc.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${dur},${AFMT}[a${i}]`)
-    pairs.push(`[v${i}][a${i}]`)
     n++
   }
-  fc.push(`${pairs.join('')}concat=n=${p.video.length}:v=1:a=1[cv0][ca]`)
+  // plain cuts are joined with concat; a transition joins the runs with xfade at the incoming clip's start
+  const runs: number[][] = []
+  p.video.forEach((_v, i) => { if (i === 0 || transitionMs(p.video, i) > 0) runs.push([i]); else runs.at(-1)!.push(i) })
+  const runLabel = runs.map((r, k) => {
+    if (r.length === 1) return `v${r[0]}`
+    fc.push(`${r.map((i) => `[v${i}]`).join('')}concat=n=${r.length}:v=1:a=0[run${k}]`)
+    return `run${k}`
+  })
+  let vLabel = runLabel[0]
+  for (let k = 1; k < runs.length; k++) {
+    const i = runs[k][0], v = p.video[i]
+    fc.push(`[${vLabel}][${runLabel[k]}]xfade=transition=${v.transition!.type}:duration=${sec(transitionMs(p.video, i))}:offset=${sec(v.startMs)}[xf${k}]`)
+    vLabel = `xf${k}`
+  }
 
-  let vLabel = 'cv0'
+  // each clip's sound is its own piece (fades for transitions, J/L cuts), mixed over a silent bed as long as the video
+  fc.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${sec(total)},${AFMT}[abed]`)
+  const mixIn = ['[abed]']
+  for (const [j, a] of clipAudioSegments(p).entries()) {
+    if (a.startMs >= total) continue
+    const m = p.media.find((x) => x.id === a.mediaId)!
+    const L = Math.min(a.outMs - a.inMs, total - a.startMs)
+    args.push('-ss', sec(a.inMs), '-t', sec(L), '-i', m.path)
+    const fades = [...(a.fadeInMs ? [`afade=t=in:d=${sec(a.fadeInMs)}:curve=tri`] : []), ...(a.fadeOutMs && a.outMs - a.inMs <= L ? [`afade=t=out:st=${sec(L - a.fadeOutMs)}:d=${sec(a.fadeOutMs)}:curve=tri`] : [])]
+    fc.push(`[${n}:a]${AFMT},atrim=duration=${sec(L)},apad=whole_dur=${sec(L)},asetpts=PTS-STARTPTS,volume=${a.gain}${fades.map((f) => `,${f}`).join('')},adelay=${Math.round(a.startMs)}:all=1[ca${j}]`)
+    mixIn.push(`[ca${j}]`)
+    n++
+  }
+
   for (const [k, t] of p.text.filter((t) => textPngs[t.id] && t.startMs < total).entries()) {
     const png = textPngs[t.id]
     const file = typeof png === 'string' ? png : png.path
@@ -95,19 +118,18 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
   }
   fc.push(`[${vLabel}]format=yuv420p[vout]`)
 
-  let aLabel = 'ca'
   const music = p.audio.filter((a) => a.startMs < total)
-  const musLabels: string[] = []
   for (const [k, a] of music.entries()) {
     const m = p.media.find((x) => x.id === a.mediaId)!
     const len = Math.min(a.outMs - a.inMs, total - a.startMs)
     args.push('-ss', sec(a.inMs), '-t', sec(len), '-i', m.path)
     fc.push(`[${n}:a]${AFMT},volume=${a.volume},adelay=${Math.round(a.startMs)}:all=1[mus${k}]`)
-    musLabels.push(`[mus${k}]`)
+    mixIn.push(`[mus${k}]`)
     n++
   }
-  if (musLabels.length) {
-    fc.push(`[ca]${musLabels.join('')}amix=inputs=${musLabels.length + 1}:duration=first:normalize=0[amix]`)
+  let aLabel = 'abed'
+  if (mixIn.length > 1) {
+    fc.push(`${mixIn.join('')}amix=inputs=${mixIn.length}:duration=first:normalize=0[amix]`)
     aLabel = 'amix'
   }
 

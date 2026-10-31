@@ -2,6 +2,7 @@ import { ASPECT_SIZE, DEFAULT_TEXT_STYLE, IDENTITY_TRANSFORM, MIN_ITEM_MS, STILL
   type Project, type TextItem, type TextStyle, type VideoItem } from './model'
 import type { IdGen } from './ids'
 import type { Adjust, FilterRef } from './look'
+import { transitionMs, MIN_TRANSITION_MS, type TransitionType } from './transitions'
 import { fmtTime } from './time'
 
 export type Command =
@@ -27,6 +28,8 @@ export type Command =
   | { type: 'addAudio'; mediaId: MediaId; startMs: number; lane: number; inMs?: number; outMs?: number; volume?: number }
   /** Filter (null removes it) and/or adjustments (merged into the clip's; null clears them) for video clips. */
   | { type: 'setLook'; ids: ItemId[]; filter?: FilterRef | null; adjust?: Adjust | null }
+  /** Transition into each clip from the previous one (null removes); ids 'all' = every cut. */
+  | { type: 'setTransition'; ids: ItemId[] | 'all'; transition: { type: TransitionType; durationMs: number } | null }
   /** Several edits as one step (one undo); if any fails, none apply. */
   | { type: 'batch'; commands: Command[]; summary?: string }
 
@@ -46,9 +49,11 @@ const dur = (i: { inMs: number; outMs: number }): number => i.outMs - i.inMs
 const int = (n: number): number => Math.round(n)
 
 /** Recompute video start times (ripple: no gaps). */
+/** Video is a ripple track: each clip starts where the previous ends, minus the transition into it. */
 function ripple(video: VideoItem[]): void {
+  if (video[0]?.transition) delete video[0].transition // nothing to transition from
   let t = 0
-  for (const v of video) { v.startMs = t; t += dur(v) }
+  video.forEach((v, i) => { v.startMs = t - transitionMs(video, i); t = v.startMs + dur(v) })
 }
 
 function findMedia(p: Project, id: MediaId): MediaItem {
@@ -151,6 +156,19 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
   const done = (summary: string, affected: ItemId[]): CommandResult => ({ project: n, summary, affected })
 
   switch (cmd.type) {
+    case 'setTransition': {
+      const ids = cmd.ids === 'all' ? n.video.slice(1).map((v) => v.id) : cmd.ids
+      for (const id of ids) {
+        const i = n.video.findIndex((x) => x.id === id)
+        if (i < 0) fail('not_found', `video clip ${id} not found`)
+        if (i === 0 && cmd.transition) fail('invalid', `${id} is the first clip: a transition goes on the clip after a cut`)
+        if (cmd.transition) n.video[i].transition = { type: cmd.transition.type, durationMs: int(Math.max(MIN_TRANSITION_MS, cmd.transition.durationMs)) }
+        else delete n.video[i].transition
+      }
+      ripple(n.video)
+      return done(cmd.transition ? `${cmd.transition.type} transition on ${ids.length} cut${ids.length === 1 ? '' : 's'}` : `removed ${ids.length} transition${ids.length === 1 ? '' : 's'}`, ids)
+    }
+
     case 'setLook': {
       for (const id of cmd.ids) {
         const v = n.video.find((x) => x.id === id)
@@ -246,6 +264,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       const cut = at - item.startMs
       if (cut < MIN_ITEM_MS || dur(item) - cut < MIN_ITEM_MS) fail('invalid', `split point ${fmtTime(at)} is not inside ${cmd.id}`)
       const second = { ...structuredClone(item), id: ids(track === 'video' ? 'c' : 'a'), startMs: at, inMs: item.inMs + cut }
+      if ('transition' in second) delete second.transition // a split is a plain cut
       item.outMs = item.inMs + cut
       ;(n[track] as Array<VideoItem | AudioItem>).splice(index + 1, 0, second)
       if (track === 'video') ripple(n.video)
@@ -339,6 +358,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       const { track, index } = locate(n, cmd.id)
       if (track === 'video') {
         const copy = { ...structuredClone(n.video[index]), id: ids('c') }
+        delete copy.transition
         n.video.splice(index + 1, 0, copy)
         ripple(n.video)
         return done(`duplicated ${itemName(n, cmd.id)} as ${copy.id}`, [copy.id])
@@ -387,6 +407,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       let at = index + 1
       if (cut >= MIN_ITEM_MS && dur(v) - cut >= MIN_ITEM_MS) {
         const second: VideoItem = { ...structuredClone(v), id: ids('c'), inMs: v.inMs + cut }
+        delete second.transition
         v.outMs = v.inMs + cut
         n.video.splice(index + 1, 0, second)
       } else if (cut < MIN_ITEM_MS) at = index

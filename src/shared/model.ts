@@ -1,4 +1,5 @@
 import type { ClipLook } from './look'
+import type { TransitionType } from './transitions'
 export type MediaId = string
 export type ItemId = string
 export type Aspect = '16:9' | '9:16' | '1:1'
@@ -33,7 +34,13 @@ export interface MediaItem {
 export interface ClipTransform { rotate: 0 | 90 | 180 | 270; flipH: boolean; flipV: boolean; crop: { x: number; y: number; w: number; h: number } }
 export const IDENTITY_TRANSFORM: ClipTransform = { rotate: 0, flipH: false, flipV: false, crop: { x: 0, y: 0, w: 1, h: 1 } }
 
-export interface VideoItem { id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number; transform?: ClipTransform; look?: ClipLook }
+export interface VideoItem {
+  id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number; transform?: ClipTransform; look?: ClipLook
+  /** Transition from the previous clip into this one: the clips overlap by its length (see transitionMs). */
+  transition?: { type: TransitionType; durationMs: number }
+  /** Moves the sound's edit at the cut into this clip: + L-cut (previous sound runs on), − J-cut (this sound starts early). */
+  audioCutMs?: number
+}
 
 /** How a text comes on / goes off. Every one also fades. */
 export type TextAnim = 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'pop'

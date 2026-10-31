@@ -42,7 +42,8 @@ describe('export graph', () => {
     const hdr = fc.split(';')[0]
     expect(hdr.indexOf('fps=')).toBeLessThan(hdr.indexOf(TONEMAP_VF))
     expect(hdr.indexOf('crop=')).toBeLessThan(hdr.indexOf(TONEMAP_VF))
-    expect(fc).toContain('concat=n=2:v=1:a=1')
+    expect(fc).toContain('concat=n=2:v=1:a=0')
+    expect(fc).toContain('[abed][ca0]amix=inputs=2') // silent bed + the one clip that has sound
     expect(fc).toContain('volume=0.5')
     expect(args).toContain("/v/Tōkyō day 1 'final'.mov") // separate argv entry, no shell quoting
     expect(args.slice(args.indexOf('-c:v'), args.indexOf('-c:v') + 2)).toEqual(['-c:v', 'h264_nvenc'])
@@ -57,11 +58,28 @@ describe('export graph', () => {
     const args = buildExportArgs(p, { ...O, quality: 'high', resolution: 2160 }, { t1: '/tmp/t1.png' }, X264)
     const fc = args[args.indexOf('-filter_complex') + 1]
     expect(fc).toContain("enable='between(t,0.5,2)'")
-    expect(fc).toContain('amix=inputs=2:duration=first:normalize=0')
+    expect(fc).toContain('amix=inputs=3:duration=first:normalize=0') // bed + clip sound + music
     expect(args).toContain('/tmp/t1.png')
     expect(args).toContain('-crf'); expect(args[args.indexOf('-crf') + 1]).toBe('16')
     expect(fc).toContain('crop=2160:3840')
   })
+  it('joins plain cuts with concat and transitions with xfade at the incoming clip start; clip sound crossfades', () => {
+    const p = project()
+    p.media.push(m('c3', {}))
+    p.video = [
+      { id: 'c1', mediaId: 'c3', startMs: 0, inMs: 0, outMs: 3000, volume: 1 },
+      { id: 'c2', mediaId: 'uni', startMs: 3000, inMs: 0, outMs: 2000, volume: 1 },
+      { id: 'c3', mediaId: 'c3', startMs: 4500, inMs: 0, outMs: 3000, volume: 1, transition: { type: 'slideleft', durationMs: 500 } }
+    ]
+    const fc = buildExportArgs(p, O, {}, X264)[buildExportArgs(p, O, {}, X264).indexOf('-filter_complex') + 1]
+    expect(fc).toContain('[v0][v1]concat=n=2:v=1:a=0[run0]')
+    expect(fc).toContain('[run0][v2]xfade=transition=slideleft:duration=0.5:offset=4.5[xf1]')
+    expect(fc).toContain('atrim=duration=7.5') // bed = the timeline length (8000 - 500)
+    // c2 has no sound; c3's sound fades in over the transition and starts with its picture
+    expect(fc).toContain('afade=t=in:d=0.5:curve=tri,adelay=4500:all=1')
+    expect(count(fc, 'afade=t=out')).toBe(0)
+  })
+
   it('lists offline media used on the timeline, but not media whose preview build failed', () => {
     const p = project(); p.media[1].status = 'offline'
     expect(missingMedia(p).map((x) => x.name)).toEqual(['uni.mov'])
@@ -77,9 +95,9 @@ describe('export graph', () => {
     ]
     const args = buildExportArgs(p, O, {}, NV)
     const fc = args[args.indexOf('-filter_complex') + 1]
-    expect(count(fc, 'adelay=')).toBe(2)
+    expect(count(fc, 'adelay=')).toBe(3) // two music pieces + the clip with sound
     expect(fc).toContain('adelay=3000:all=1')
-    expect(fc).toContain('amix=inputs=3:duration=first:normalize=0')
+    expect(fc).toContain('amix=inputs=4:duration=first:normalize=0')
     expect(args.filter((a) => a === '/v/mus.mov')).toHaveLength(2)
   })
   it('applies crop, rotate and flip before the cover scale', () => {

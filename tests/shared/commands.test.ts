@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { applyCommand, CommandError, type Command } from '@shared/commands'
-import { emptyProject, type MediaItem, type Project } from '@shared/model'
+import { emptyProject, timelineDurationMs, type MediaItem, type Project } from '@shared/model'
 import { seqIds, type IdGen } from '@shared/ids'
 
 const media = (id: string, over: Partial<MediaItem> = {}): MediaItem => ({
@@ -300,5 +300,37 @@ describe('looks (filters and adjustments)', () => {
     s.run({ type: 'setLook', ids: ['c_000002'], filter: null, adjust: null })
     expect(s.p.video.find((v) => v.id === 'c_000002')!.look).toBeUndefined()
     expect(s.err({ type: 'setLook', ids: ['t_nope'], adjust: { exposure: 1 } })).toBe('not_found')
+  })
+})
+
+describe('transitions', () => {
+  it('a transition overlaps the clip with the previous one and shortens the timeline', () => {
+    const s = setup()
+    for (const m of ['m_a', 'm_b', 'm_c']) s.run({ type: 'addClip', mediaId: m })
+    s.run({ type: 'setTransition', ids: ['c_000002'], transition: { type: 'fade', durationMs: 1000 } })
+    expect(starts(s.p)).toEqual([0, 4000, 9000])
+    expect(timelineDurationMs(s.p)).toBe(14000)
+    // longer than half a clip: limited to half (2500)
+    s.run({ type: 'setTransition', ids: ['c_000003'], transition: { type: 'slideleft', durationMs: 4000 } })
+    expect(starts(s.p)).toEqual([0, 4000, 6500])
+    // the first clip can't have one; null removes
+    expect(s.err({ type: 'setTransition', ids: ['c_000001'], transition: { type: 'fade', durationMs: 500 } })).toBe('invalid')
+    s.run({ type: 'setTransition', ids: ['c_000002', 'c_000003'], transition: null })
+    expect(starts(s.p)).toEqual([0, 5000, 10000])
+  })
+  it('all cuts at once; a split keeps the transition on the first half only; moving the clip first drops it', () => {
+    const s = setup()
+    for (const m of ['m_a', 'm_b', 'm_c']) s.run({ type: 'addClip', mediaId: m })
+    s.run({ type: 'setTransition', ids: 'all', transition: { type: 'fadeblack', durationMs: 500 } })
+    expect(s.p.video.map((v) => v.transition?.type ?? null)).toEqual([null, 'fadeblack', 'fadeblack'])
+    s.run({ type: 'splitItem', id: 'c_000002', atMs: 6000 })
+    expect(s.p.video.map((v) => !!v.transition)).toEqual([false, true, false, true])
+    s.run({ type: 'duplicateItem', id: 'c_000002' })
+    expect(s.p.video[2].transition).toBeUndefined()
+    s.run({ type: 'moveItem', id: 'c_000003', after: null })
+    expect(s.p.video[0].transition).toBeUndefined()
+    // every clip still starts where the previous ends minus its transition
+    const v = s.p.video
+    for (let i = 1; i < v.length; i++) expect(v[i].startMs).toBe(v[i - 1].startMs + v[i - 1].outMs - v[i - 1].inMs - (v[i].transition ? 500 : 0))
   })
 })
