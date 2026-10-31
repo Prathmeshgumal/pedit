@@ -17,6 +17,7 @@ type Update = (id: MediaId, patch: Partial<MediaItem>) => void
 type Progress = (id: MediaId, stage: Stage, pct: number) => void
 
 const PATH_KEY: Record<Stage, keyof MediaItem> = { thumb: 'thumbPath', filmstrip: 'filmstripPath', waveform: 'waveformPath', proxy: 'proxyPath' }
+let tmpSeq = 0
 const EXT: Record<Stage, string> = { thumb: 'jpg', filmstrip: 'jpg', waveform: 'bin', proxy: 'mp4' }
 
 async function cacheKey(path: string): Promise<string> {
@@ -103,7 +104,8 @@ export class MediaPipeline {
     const ext = stage === 'proxy' && m.kind === 'image' ? 'jpg' : EXT[stage]
     const out = join(this.cacheDir, `${await cacheKey(m.path)}.${stage}.${ext}`)
     if (existsSync(out)) return out
-    const tmp = `${out}.tmp.${ext}`
+    // unique per job, so two jobs for the same file never delete each other's half-written output
+    const tmp = `${out}.${process.pid}-${++tmpSeq}.tmp.${ext}`
     const signal = this.ac.signal
     const pct = (ms: number): void => this.onProgress(m.id, stage, Math.min(99, Math.round((ms / Math.max(1, m.durationMs)) * 100)))
     try {
