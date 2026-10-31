@@ -25,6 +25,7 @@ const api: PeditApi = {
   rejectDraft: () => ipcRenderer.invoke(CH.rejectDraft),
   onMediaProgress: (cb) => on(CH.mediaProgress, cb),
   pathForFile: (file) => webUtils.getPathForFile(file),
+  diagnostics: () => ipcRenderer.invoke(CH.diagnostics),
   sendChat: (text, tags) => ipcRenderer.invoke(CH.sendChat, text, tags),
   stopChat: () => ipcRenderer.send(CH.stopChat),
   onChatEvent: (cb) => on(CH.chatEvent, cb),

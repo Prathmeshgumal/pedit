@@ -1,0 +1,26 @@
+appId: dev.pedit.app
+productName: pedit
+executableName: pedit
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  - "**/*.node"
+extraResources:
+  - from: resources/ffmpeg/linux-x64
+    to: ffmpeg/linux-x64
+  - from: resources/fonts
+    to: fonts
+  - from: src/main/claude/editor-guide.md
+    to: editor-guide.md
+linux:
+  target:
+    - AppImage
+    - dir
+  category: AudioVideo
+  artifactName: pedit-${version}.${ext}
+npmRebuild: false

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { runExport, exportTempDir } from './export/run'
-import { detectEncoders } from './media/ffmpeg'
+import { detectEncoders, ffmpegPath } from './media/ffmpeg'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -50,6 +50,10 @@ function registerIpc(): void {
   ipcMain.on(CH.stopChat, () => chat.stop())
   ipcMain.handle(CH.chatHistory, () => chat.history())
   ipcMain.handle(CH.claudeStatus, () => chat.status())
+  ipcMain.handle(CH.diagnostics, async () => {
+    const st = await chat.status()
+    return { ffmpeg: ffmpegPath(), encoder: (await detectEncoders()).h264, claude: st.ok ? st.version ?? null : null }
+  })
   ipcMain.handle(CH.pickProjectDir, async (_e, mode: 'new' | 'open') => {
     if (mode === 'new') {
       const r = await dialog.showSaveDialog(win!, { title: 'New project', defaultPath: 'My Project.pedit', buttonLabel: 'Create' })

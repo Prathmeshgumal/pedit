@@ -43,6 +43,7 @@ export interface PeditApi {
   onChatEvent(cb: (e: ChatEvent) => void): () => void
   chatHistory(): Promise<ChatEntry[]>
   claudeStatus(): Promise<ClaudeStatus>
+  diagnostics(): Promise<{ ffmpeg: string; encoder: string; claude: string | null }>
   /** Renderer side of main's renderTextPngs: render each text item to PNG bytes. */
   onTextRenderRequest(handler: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, Uint8Array>>): () => void
 }
@@ -64,6 +65,7 @@ export const CH = {
   rejectDraft: 'session:reject',
   mediaProgress: 'media:progress',
   textRender: 'text:render',
+  diagnostics: 'app:diagnostics',
   sendChat: 'chat:send',
   stopChat: 'chat:stop',
   chatEvent: 'chat:event',
