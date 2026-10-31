@@ -13,7 +13,7 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding')
 let win: BrowserWindow | null = null
 const send = (ch: string, ...args: unknown[]): void => { if (win && !win.isDestroyed()) win.webContents.send(ch, ...args) }
 const editor = new Editor({
-  project: (p) => send(CH.project, p),
+  state: (st) => send(CH.state, st),
   progress: (id, stage, pct) => send(CH.mediaProgress, id, stage, pct)
 })
 
@@ -25,7 +25,14 @@ function rememberProject(): void {
 function registerIpc(): void {
   ipcMain.handle(CH.newProject, async (_e, dir: string, name: string) => { await editor.newProject(dir, name); rememberProject() })
   ipcMain.handle(CH.openProject, async (_e, dir: string) => { await editor.openProject(dir); rememberProject() })
-  ipcMain.handle(CH.getProject, () => editor.project)
+  ipcMain.handle(CH.getState, () => editor.state())
+  ipcMain.handle(CH.edit, (_e, cmd) => {
+    try { return { ok: true, summary: editor.apply(cmd) } } catch (err) { return { ok: false, error: (err as Error).message } }
+  })
+  ipcMain.handle(CH.undo, () => editor.session?.undo())
+  ipcMain.handle(CH.redo, () => editor.session?.redo())
+  ipcMain.handle(CH.acceptDraft, () => editor.session?.acceptDraft())
+  ipcMain.handle(CH.rejectDraft, () => editor.session?.rejectDraft())
   ipcMain.handle(CH.pickProjectDir, async (_e, mode: 'new' | 'open') => {
     if (mode === 'new') {
       const r = await dialog.showSaveDialog(win!, { title: 'New project', defaultPath: 'My Project.pedit', buttonLabel: 'Create' })

@@ -1,4 +1,6 @@
-import type { MediaId, Project } from './model'
+import type { MediaId } from './model'
+import type { Command } from './commands'
+import type { SessionState } from './session'
 
 export type ProgressStage = 'thumb' | 'filmstrip' | 'waveform' | 'proxy'
 
@@ -10,8 +12,13 @@ export interface PeditApi {
   importPaths(paths: string[]): Promise<void>
   relinkMedia(id: MediaId): Promise<void>
   selectMedia(id: MediaId | null): void
-  getProject(): Promise<Project | null>
-  onProject(cb: (p: Project | null) => void): () => void
+  getState(): Promise<SessionState | null>
+  onState(cb: (s: SessionState | null) => void): () => void
+  edit(cmd: Command): Promise<{ ok: true; summary: string } | { ok: false; error: string }>
+  undo(): Promise<void>
+  redo(): Promise<void>
+  acceptDraft(): Promise<void>
+  rejectDraft(): Promise<void>
   onMediaProgress(cb: (id: MediaId, stage: ProgressStage, pct: number) => void): () => void
   pathForFile(file: File): string
 }
@@ -24,7 +31,12 @@ export const CH = {
   importPaths: 'media:import',
   relinkMedia: 'media:relink',
   selectMedia: 'media:select',
-  getProject: 'project:get',
-  project: 'project:state',
+  getState: 'session:get',
+  state: 'session:state',
+  edit: 'session:edit',
+  undo: 'session:undo',
+  redo: 'session:redo',
+  acceptDraft: 'session:accept',
+  rejectDraft: 'session:reject',
   mediaProgress: 'media:progress'
 } as const

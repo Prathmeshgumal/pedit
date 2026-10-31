@@ -1,24 +1,27 @@
 import { basename } from 'node:path'
 import { existsSync } from 'node:fs'
-import type { MediaId, MediaItem, Project } from '../shared/model'
-import { applyCommand, type Command } from '../shared/commands'
-import { randomIds } from '../shared/ids'
+import type { MediaId, MediaItem } from '../shared/model'
+import type { Command } from '../shared/commands'
+import { EditSession, type SessionState, type Source } from '../shared/session'
 import type { ProgressStage } from '../shared/ipc'
 import { ProjectStore } from './project/store'
 import { MediaPipeline, importPaths } from './media/jobs'
 import { detectEncoders } from './media/ffmpeg'
+import { randomIds } from '../shared/ids'
 
-type Listener = { project(p: Project | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
+type Listener = { state(s: SessionState | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
 
-/** Owns the open project, its store and media pipeline. All project changes go through apply(). */
+/** Owns the open project: its store, edit session and media pipeline. */
 export class Editor {
   store: ProjectStore | null = null
+  session: EditSession | null = null
   private pipeline: MediaPipeline | null = null
   private saveTimer: NodeJS.Timeout | null = null
+  private offSession: (() => void) | null = null
 
   constructor(private out: Listener) {}
 
-  get project(): Project | null { return this.store?.project ?? null }
+  state(): SessionState | null { return this.session?.state() ?? null }
 
   async newProject(dir: string, name: string): Promise<void> { await this.attach(await ProjectStore.create(dir, name)) }
   async openProject(dir: string): Promise<void> { await this.attach(await ProjectStore.open(dir)) }
@@ -28,27 +31,22 @@ export class Editor {
     else await this.newProject(dir, basename(dir).replace(/\.pedit$/, ''))
   }
 
-  apply(cmd: Command): void {
-    if (!this.store) throw new Error('no project open')
-    const { project } = applyCommand(this.store.project, cmd, randomIds)
-    this.store.project = project
-    this.scheduleSave()
-    this.out.project(project)
+  apply(cmd: Command, source: Source = 'user', expectedRevision?: number): string {
+    return this.need().session.apply(cmd, source, expectedRevision).summary
   }
 
   async importPaths(paths: string[]): Promise<void> {
-    const store = this.need()
-    const items = await importPaths(paths, store.project.media, randomIds)
+    const { session } = this.need()
+    const items = await importPaths(paths, session.state().real.media, randomIds)
     if (!items.length) return
-    this.apply({ type: 'addMedia', items })
+    session.apply({ type: 'addMedia', items }, 'user')
     for (const m of items) this.pipeline!.enqueue(m)
   }
 
   async relink(id: MediaId, path: string): Promise<void> {
-    const store = this.need()
-    await store.relink(id, path)
-    this.out.project(store.project)
-    const m = store.project.media.find((x) => x.id === id)
+    const { session } = this.need()
+    session.apply({ type: 'updateMedia', id, patch: { path, status: 'processing', error: undefined } }, 'user')
+    const m = session.state().real.media.find((x) => x.id === id)
     if (m) this.pipeline!.enqueue(m)
   }
 
@@ -56,28 +54,32 @@ export class Editor {
 
   async flush(): Promise<void> {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null }
-    if (this.store) await this.store.save(this.store.project)
+    if (this.store && this.session) await this.store.save(this.session.state().real)
   }
 
-  private need(): ProjectStore {
-    if (!this.store) throw new Error('no project open')
-    return this.store
+  private need(): { store: ProjectStore; session: EditSession } {
+    if (!this.store || !this.session) throw new Error('no project open')
+    return { store: this.store, session: this.session }
   }
 
   private async attach(store: ProjectStore): Promise<void> {
     await this.flush()
     this.pipeline?.cancelAll()
+    this.offSession?.()
+    const session = new EditSession(store.project)
     this.store = store
+    this.session = session
+    this.offSession = session.onChange((s) => { this.scheduleSave(); this.out.state(s) })
     this.pipeline = new MediaPipeline(store.cacheDir, await detectEncoders(),
-      (id, patch) => { if (this.store === store) this.apply({ type: 'updateMedia', id, patch }) },
+      (id, patch) => { if (this.session === session) session.apply({ type: 'updateMedia', id, patch }, 'user') },
       (id, stage, pct) => this.out.progress(id, stage, pct))
-    this.out.project(store.project)
-    for (const m of store.project.media) if (needsWork(m)) this.pipeline.enqueue(m)
+    this.out.state(session.state())
+    for (const m of session.state().real.media) if (needsWork(m)) this.pipeline.enqueue(m)
   }
 
   private scheduleSave(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer)
-    this.saveTimer = setTimeout(() => { this.saveTimer = null; void this.store?.save(this.store.project) }, 300)
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; void this.flush() }, 300)
   }
 }
 

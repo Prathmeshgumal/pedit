@@ -15,8 +15,13 @@ const api: PeditApi = {
   importPaths: (paths) => ipcRenderer.invoke(CH.importPaths, paths),
   relinkMedia: (id) => ipcRenderer.invoke(CH.relinkMedia, id),
   selectMedia: (id) => ipcRenderer.send(CH.selectMedia, id),
-  getProject: () => ipcRenderer.invoke(CH.getProject),
-  onProject: (cb) => on(CH.project, cb),
+  getState: () => ipcRenderer.invoke(CH.getState),
+  onState: (cb) => on(CH.state, cb),
+  edit: (cmd) => ipcRenderer.invoke(CH.edit, cmd),
+  undo: () => ipcRenderer.invoke(CH.undo),
+  redo: () => ipcRenderer.invoke(CH.redo),
+  acceptDraft: () => ipcRenderer.invoke(CH.acceptDraft),
+  rejectDraft: () => ipcRenderer.invoke(CH.rejectDraft),
   onMediaProgress: (cb) => on(CH.mediaProgress, cb),
   pathForFile: (file) => webUtils.getPathForFile(file)
 }
