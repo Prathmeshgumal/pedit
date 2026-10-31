@@ -1,0 +1,4 @@
+All bundled fonts except Inter come from Google Fonts (fonts.google.com) and are licensed under the
+SIL Open Font License 1.1 or the Apache License 2.0, which allow bundling and use in videos.
+Inter is licensed under the SIL Open Font License 1.1 (see Inter-LICENSE.txt).
+Refresh with scripts/fetch-fonts.sh.

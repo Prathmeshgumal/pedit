@@ -1,8 +1,10 @@
-import type { Aspect, ItemId, MediaId, TextItem } from './model'
+import type { Aspect, ItemId, MediaId, TextItem, TextStyle } from './model'
 
 export interface ExportOptions { aspect: Aspect; resolution: 1080 | 2160; fps: 30 | 60 | 'source'; quality: 'standard' | 'high'; outPath: string }
 import type { Command } from './commands'
 import type { SessionState } from './session'
+import type { FontInfo } from './fonts'
+import type { TextPreset } from './textPresets'
 
 export interface ChatEntry { at: string; role: 'user' | 'assistant' | 'step' | 'system'; text: string }
 export type ChatEvent =
@@ -43,6 +45,14 @@ export interface PeditApi {
   getSettings(): Promise<Settings>
   getStory(): Promise<string>
   setStory(text: string): Promise<void>
+  /** Font and text-style library (bundled + added by the user or Claude). */
+  listFonts(): Promise<FontInfo[]>
+  addFont(family: string): Promise<FontInfo>
+  pickFontFile(): Promise<FontInfo | null>
+  listTextStyles(): Promise<TextPreset[]>
+  saveTextStyle(name: string, description: string, style: Partial<TextStyle>): Promise<TextPreset>
+  /** Fonts, text styles or filters were added (by Claude or in another window). */
+  onLibraryChanged(cb: () => void): () => void
   setSettings(patch: Partial<Settings>): Promise<Settings>
   onMenu(cb: (a: MenuAction) => void): () => void
   pickImport(kind?: 'files' | 'folder'): Promise<string[]>
@@ -72,8 +82,11 @@ export interface PeditApi {
   claudeStatus(): Promise<ClaudeStatus>
   diagnostics(): Promise<{ ffmpeg: string; encoder: string; claude: string | null }>
   /** Renderer side of main's renderTextPngs: render each text item to PNG bytes. */
-  onTextRenderRequest(handler: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, Uint8Array>>): () => void
+  onTextRenderRequest(handler: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, RenderedText>>): () => void
 }
+
+/** A text drawn by the renderer for export: full-frame PNG bytes and the text block's centre in px. */
+export interface RenderedText { png: Uint8Array; cx: number; cy: number }
 
 export const CH = {
   newProject: 'project:new',
@@ -91,6 +104,12 @@ export const CH = {
   getSettings: 'settings:get',
   getStory: 'story:get',
   setStory: 'story:set',
+  listFonts: 'lib:fonts',
+  addFont: 'lib:addFont',
+  pickFontFile: 'lib:pickFont',
+  listTextStyles: 'lib:textStyles',
+  saveTextStyle: 'lib:saveTextStyle',
+  libraryChanged: 'lib:changed',
   setSettings: 'settings:set',
   menu: 'app:menu',
   pickImport: 'media:pick',

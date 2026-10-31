@@ -1,4 +1,5 @@
 import type { Aspect, ItemId, MediaItem, Project } from '../../shared/model'
+import { ffTextAnim } from '../../shared/textAnim'
 import { IDENTITY_TRANSFORM, timelineDurationMs } from '../../shared/model'
 import { transformFilters } from '../../shared/transform'
 import { TONEMAP_VF } from '../media/color'
@@ -35,7 +36,10 @@ const isHdr = (m: MediaItem): boolean => m.colorTransfer === 'hlg' || m.colorTra
 const AFMT = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo'
 
 /** Pure: the full ffmpeg argv for exporting p (original files, not proxies). Output goes to `<outPath>.part`. */
-export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<ItemId, string>, enc: EncoderInfo): string[] {
+/** A rendered text image: the full-frame PNG, and the text block's centre (needed to scale it in place for 'pop'). */
+export type TextPng = string | { path: string; cx: number; cy: number }
+
+export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<ItemId, TextPng>, enc: EncoderInfo): string[] {
   const { width: W, height: H } = outputSize(o.aspect, o.resolution)
   const fps = resolveFps(p, o)
   const total = timelineDurationMs(p)
@@ -61,9 +65,16 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
 
   let vLabel = 'cv0'
   for (const [k, t] of p.text.filter((t) => textPngs[t.id] && t.startMs < total).entries()) {
-    args.push('-loop', '1', '-framerate', String(fps), '-t', sec(total), '-i', textPngs[t.id])
+    const png = textPngs[t.id]
+    const file = typeof png === 'string' ? png : png.path
+    const centre = typeof png === 'string' ? { cx: W / 2, cy: H / 2 } : { cx: png.cx, cy: png.cy }
+    args.push('-loop', '1', '-framerate', String(fps), '-t', sec(total), '-i', file)
     const out = `cv${k + 1}`
-    fc.push(`[${vLabel}][${n}:v]overlay=0:0:eof_action=pass:enable='between(t,${sec(t.startMs)},${sec(t.startMs + t.durationMs)})'[${out}]`)
+    const an = ffTextAnim(t, W, H, centre)
+    const pre = ['format=rgba', ...(an.scale ? [`scale=w='max(2,trunc(iw*${an.scale}))':h='max(2,trunc(ih*${an.scale}))':eval=frame`] : []), ...an.fades]
+    const src = pre.length > 1 ? `[${n}:v]${pre.join(',')}[tx${k}];` : ''
+    const input = src ? `[tx${k}]` : `[${n}:v]`
+    fc.push(`${src}[${vLabel}]${input}overlay=x='${an.x}':y='${an.y}':eof_action=pass:enable='between(t,${sec(t.startMs)},${sec(t.startMs + t.durationMs)})'[${out}]`)
     vLabel = out
     n++
   }

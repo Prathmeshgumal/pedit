@@ -1,17 +1,7 @@
 import type { TextItem } from '@shared/model'
-import interRegular from '../../../resources/fonts/Inter-Regular.ttf?url'
-import interBold from '../../../resources/fonts/Inter-Bold.ttf?url'
+import { ensureFont, loadFonts } from './fonts'
 
-let fontsReady: Promise<void> | null = null
-
-/** Load the bundled Inter faces once; every render awaits this. */
-export function loadFonts(): Promise<void> {
-  fontsReady ??= (async () => {
-    const faces = [new FontFace('Inter', `url(${interRegular})`, { weight: '400' }), new FontFace('Inter', `url(${interBold})`, { weight: '700' })]
-    for (const f of faces) document.fonts.add(await f.load())
-  })()
-  return fontsReady
-}
+export { loadFonts }
 
 function wrap(ctx: OffscreenCanvasRenderingContext2D, text: string, maxW: number): string[] {
   const lines: string[] = []
@@ -26,63 +16,87 @@ function wrap(ctx: OffscreenCanvasRenderingContext2D, text: string, maxW: number
   return lines
 }
 
-interface Layout { px: number; lines: string[]; ascent: number; lineH: number; blockH: number; maxW: number; pad: number; cx: number; top: number }
+interface Layout { px: number; lines: string[]; ascent: number; lineH: number; blockH: number; maxW: number; pad: number; cx: number; top: number; spacing: number }
 
-function layout(ctx: OffscreenCanvasRenderingContext2D, item: TextItem, width: number, height: number): Layout {
+/** Outline actually drawn: missing = the classic thin black edge (only without a box). */
+function outlineOf(item: TextItem): { color: string; width: number } | null {
+  const o = item.style.outline
+  if (o === undefined) return item.style.background ? null : { color: 'rgba(0,0,0,0.85)', width: 1 }
+  return o && o.width > 0 ? o : null
+}
+
+async function layout(ctx: OffscreenCanvasRenderingContext2D, item: TextItem, width: number, height: number): Promise<Layout> {
   const s = item.style
   const px = Math.round((height * s.sizePct) / 100)
-  ctx.font = `${s.bold ? 700 : 400} ${px}px Inter`
-  const lines = wrap(ctx, item.text, width * 0.9)
+  const families = await ensureFont(s.font || 'Inter')
+  ctx.font = `${s.bold ? 700 : 400} ${px}px ${families}`
+  const spacing = (s.letterSpacing ?? 0) * px
+  ctx.letterSpacing = `${spacing}px`
+  const text = s.uppercase ? item.text.toLocaleUpperCase() : item.text
+  const lines = wrap(ctx, text, width * 0.9)
   const m = ctx.measureText('Hg')
   const ascent = m.fontBoundingBoxAscent, descent = m.fontBoundingBoxDescent
   const lineH = Math.round(px * 1.2)
   const blockH = lineH * (lines.length - 1) + ascent + descent
-  const maxW = Math.max(...lines.map((l) => ctx.measureText(l).width))
+  // letter spacing is added after every letter, including the last; don't count that one
+  const maxW = Math.max(...lines.map((l) => ctx.measureText(l).width - (l ? spacing : 0)))
   const margin = height * 0.08
   const pad = s.background ? px * 0.4 : 0
   let cx = width / 2
   let top: number
   if (s.position === 'custom') { cx = (s.x ?? 0.5) * width; top = (s.y ?? 0.5) * height - blockH / 2 }
   else top = s.position === 'top' ? margin + pad : s.position === 'bottom' ? height - margin - pad - blockH : (height - blockH) / 2
-  return { px, lines, ascent, lineH, blockH, maxW, pad, cx, top }
+  return { px, lines, ascent, lineH, blockH, maxW, pad, cx, top, spacing }
 }
 
 /** Where the text block sits in a width×height frame (centre, size incl. background padding, rotation). */
 export async function textBox(item: TextItem, width: number, height: number): Promise<{ cx: number; cy: number; w: number; h: number; rotation: number }> {
   await loadFonts()
   const ctx = new OffscreenCanvas(1, 1).getContext('2d')!
-  const l = layout(ctx, item, width, height)
+  const l = await layout(ctx, item, width, height)
   return { cx: l.cx, cy: l.top + l.blockH / 2, w: l.maxW + l.pad * 2, h: l.blockH + l.pad * 2, rotation: item.style.rotation ?? 0 }
 }
 
-/** Full-frame transparent canvas with the text drawn as it appears in preview and export. */
-export async function renderText(item: TextItem, width: number, height: number): Promise<OffscreenCanvas> {
-  await loadFonts()
+/** Full-frame transparent canvas with the text drawn (without its in/out animation), plus the block centre. */
+export async function renderTextLayer(item: TextItem, width: number, height: number): Promise<{ canvas: OffscreenCanvas; cx: number; cy: number }> {
   const c = new OffscreenCanvas(width, height)
   const ctx = c.getContext('2d')!
   const s = item.style
-  const { px, lines, ascent, lineH, blockH, maxW, pad, cx, top } = layout(ctx, item, width, height)
+  const { px, lines, ascent, lineH, blockH, maxW, pad, cx, top, spacing } = await layout(ctx, item, width, height)
+  const cy = top + blockH / 2
   ctx.textAlign = 'center'
   ctx.textBaseline = 'alphabetic'
-  if (s.rotation) {
-    const cy = top + blockH / 2
-    ctx.translate(cx, cy); ctx.rotate((s.rotation * Math.PI) / 180); ctx.translate(-cx, -cy)
-  }
+  if (s.rotation) { ctx.translate(cx, cy); ctx.rotate((s.rotation * Math.PI) / 180); ctx.translate(-cx, -cy) }
   if (s.background) {
     ctx.fillStyle = s.background
     const r = px * 0.2, x = cx - maxW / 2 - pad, y = top - pad, w = maxW + pad * 2, h = blockH + pad * 2
     ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
   }
+  const outline = outlineOf(item)
+  if (s.shadow) {
+    ctx.shadowColor = s.shadow
+    ctx.shadowBlur = px * 0.18
+    ctx.shadowOffsetY = px * 0.04
+  }
   ctx.lineJoin = 'round'
-  ctx.lineWidth = (2 * height) / 1080
-  ctx.strokeStyle = 'rgba(0,0,0,0.85)'
   ctx.fillStyle = s.color
+  const x = cx + spacing / 2 // centre the letters, not the trailing spacing
   lines.forEach((l, i) => {
     const y = top + ascent + i * lineH
-    if (!s.background) ctx.strokeText(l, cx, y)
-    ctx.fillText(l, cx, y)
+    if (outline) {
+      ctx.strokeStyle = outline.color
+      ctx.lineWidth = (2 * outline.width * height) / 1080 // half of the stroke is under the fill
+      ctx.strokeText(l, x, y)
+      ctx.shadowColor = 'transparent'
+    }
+    ctx.fillText(l, x, y)
+    if (s.shadow) ctx.shadowColor = s.shadow
   })
-  return c
+  return { canvas: c, cx, cy }
+}
+
+export async function renderText(item: TextItem, width: number, height: number): Promise<OffscreenCanvas> {
+  return (await renderTextLayer(item, width, height)).canvas
 }
 
 export async function renderTextPng(item: TextItem, width: number, height: number): Promise<Uint8Array> {

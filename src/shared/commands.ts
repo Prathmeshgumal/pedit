@@ -24,6 +24,8 @@ export type Command =
   | { type: 'insertFreeze'; id: ItemId; atMs: number; mediaId: MediaId; durationMs: number }
   | { type: 'replaceClip'; id: ItemId; mediaId: MediaId }
   | { type: 'addAudio'; mediaId: MediaId; startMs: number; lane: number; inMs?: number; outMs?: number; volume?: number }
+  /** Several edits as one step (one undo); if any fails, none apply. */
+  | { type: 'batch'; commands: Command[]; summary?: string }
 
 export type CommandErrorCode = 'not_found' | 'overlap' | 'invalid' | 'media_not_found' | 'in_use'
 
@@ -126,6 +128,15 @@ export function transformText(t: ClipTransform | undefined): string {
 
 /** Pure: returns a new project, never mutates `p`, never changes `revision`. */
 export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResult {
+  if (cmd.type === 'batch') {
+    let cur = p
+    const summaries: string[] = [], affected: ItemId[] = []
+    for (const c of cmd.commands) {
+      const r = applyCommand(cur, c, gen)
+      cur = r.project; summaries.push(r.summary); affected.push(...r.affected)
+    }
+    return { project: cur, summary: cmd.summary ?? summaries.join('; '), affected }
+  }
   const n = structuredClone(p)
   const taken = new Set<string>([...n.media, ...n.video, ...n.text, ...n.audio].map((x) => x.id))
   const ids: IdGen = (prefix) => {

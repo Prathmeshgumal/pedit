@@ -97,6 +97,28 @@ describe('runExport', () => {
     expect(b).toBeLessThan(8)
   }, 120000)
 
+  it('text animations move and fade the text in the exported file like the preview', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const black = join(dir, 'black.mp4')
+    execFileSync(ffmpegPath(), ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=1920x1080:r=30:d=2', '-pix_fmt', 'yuv420p', black])
+    const p = emptyProject('anim')
+    p.media = [await media(black, 'mb')]
+    p.video = [{ id: 'c1', mediaId: 'mb', startMs: 0, inMs: 0, outMs: 2000, volume: 1 }]
+    p.text = [{ id: 't1', startMs: 0, durationMs: 2000, text: 'x', style: { font: 'Inter', bold: true, sizePct: 8, color: '#ffffff', position: 'center', background: null, animIn: 'slide-up', animMs: 1000 } }]
+    const out = join(dir, 'anim.mp4')
+    await runExport(p, { aspect: '16:9', resolution: 1080, fps: 30, quality: 'high', outPath: out },
+      { renderTextPngs: async (i, w, h) => Object.fromEntries(Object.entries(await fakeText(i, w, h, dir)).map(([k, v]) => [k, { path: v, cx: w / 2, cy: h / 2 }])), enc, onProgress: () => {}, signal: new AbortController().signal })
+    // at 0.25s: a quarter faded in, still ~36px below its place (box is rows 480..600 when settled)
+    const g = grayFrame(out, 0.25, 1920, 1080)
+    expect(regionMean(g, 1920, 900, 486, 120, 24)).toBeLessThan(12) // top of the settled box: not reached yet
+    const low = regionMean(g, 1920, 900, 604, 120, 24) // below the settled box: the text is still here
+    expect(low).toBeGreaterThan(35); expect(low).toBeLessThan(110)
+    // at 1.5s it has arrived and is fully visible
+    const g2 = grayFrame(out, 1.5, 1920, 1080)
+    expect(regionMean(g2, 1920, 900, 486, 120, 24)).toBeGreaterThan(200)
+    expect(regionMean(g2, 1920, 900, 610, 120, 20)).toBeLessThan(12)
+  }, 120000)
+
   it('fast HDR export looks the same as tone-mapping at full size', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
     const p = await reel(); p.video = [p.video[0]]; p.text = []; p.audio = []

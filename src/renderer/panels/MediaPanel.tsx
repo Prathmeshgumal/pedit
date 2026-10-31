@@ -2,9 +2,9 @@ import { useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { MediaItem } from '@shared/model'
 import { mediaUrl } from '@shared/mediaUrl'
 import { edit, fmtDur, useUi } from '../store'
-import { getPlayer } from '../preview/instance'
 import { openMenu, confirmDialog } from '../ContextMenu'
 import { StoryTab } from './StoryTab'
+import { TextTab } from './TextTab'
 
 /** Remove a media file from the project, asking first when the timeline uses it. */
 export async function removeMedia(m: MediaItem): Promise<void> {
@@ -133,15 +133,7 @@ export function MediaPanel() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {tab === 'story' && <StoryTab />}
-        {tab === 'text' && (
-          <div className="p-2">
-            <button data-testid="add-text" className="btn w-full" onClick={() => {
-              const t = getPlayer()?.mode === 'timeline' ? Math.round(getPlayer()!.timeMs) : 0
-              void edit({ type: 'addText', text: 'Your text', startMs: t, durationMs: 2000 })
-            }}>＋ Add text at playhead</button>
-            <div className="mt-2 text-[10px] text-neutral-500">Adds a 2s title. Edit it in Properties.</div>
-          </div>
-        )}
+        {tab === 'text' && <TextTab />}
         {tab !== 'text' && groups.length === 0 && <div className="p-6 text-center text-xs text-neutral-500">Drop clips or folders here</div>}
         {groups.map(([folder, items]) => (
           <div key={folder} className="mb-3">

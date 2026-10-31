@@ -34,8 +34,13 @@ export const IDENTITY_TRANSFORM: ClipTransform = { rotate: 0, flipH: false, flip
 
 export interface VideoItem { id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number; transform?: ClipTransform }
 
+/** How a text comes on / goes off. Every one also fades. */
+export type TextAnim = 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'pop'
+export const TEXT_ANIMS: readonly TextAnim[] = ['none', 'fade', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'pop']
+
 export interface TextStyle {
-  font: 'Inter'
+  /** A family from the font library (list_fonts); unknown names fall back to Inter. */
+  font: string
   bold: boolean
   sizePct: number
   color: string
@@ -46,6 +51,17 @@ export interface TextStyle {
   y?: number
   /** Degrees clockwise around the block centre. */
   rotation?: number
+  /** Letter outline; width in px at 1080p. Missing = thin black outline (when there's no background); null = none. */
+  outline?: { color: string; width: number } | null
+  /** Colour of a soft drop shadow, or null/missing for none. */
+  shadow?: string | null
+  /** Extra space between letters, in em (e.g. 0.1). */
+  letterSpacing?: number
+  uppercase?: boolean
+  animIn?: TextAnim
+  animOut?: TextAnim
+  /** Length of the in/out animation (default 400ms, at most half the text's duration). */
+  animMs?: number
 }
 
 export interface TextItem { id: ItemId; startMs: number; durationMs: number; text: string; style: TextStyle }

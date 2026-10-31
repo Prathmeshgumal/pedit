@@ -26,6 +26,8 @@ function binDir(): string {
 export const ffmpegPath = (): string => join(binDir(), `ffmpeg${exe}`)
 export const ffprobePath = (): string => join(binDir(), `ffprobe${exe}`)
 /** Bundled Inter font, for text ffmpeg burns into frames (contact sheets). */
+/** Bundled fonts (resources/fonts). */
+export const fontsDir = (): string => resolve(binDir(), '../../fonts')
 export const fontPath = (): string => resolve(binDir(), '../../fonts/Inter-Bold.ttf')
 
 export function runFfmpeg(

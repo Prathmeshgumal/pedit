@@ -14,7 +14,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /** A span of the output timeline backed by a range of one source file. */
 interface Seg { startMs: number; inMs: number; outMs: number; url: string | null; gain: number; still?: boolean; transform?: ClipTransform }
 type Queued = { frame: VideoFrame; ms: number; durMs: number }
-export type TextLayerFn = (texts: TextItem[], width: number, height: number) => Layer[]
+export type TextLayerFn = (texts: TextItem[], width: number, height: number, ms?: number) => Layer[]
 
 const end = (s: Seg): number => s.startMs + s.outMs - s.inMs
 const proxyUrl = (m: MediaItem | undefined): string | null => (m?.proxyPath && m.status !== 'offline' ? mediaUrl(m.proxyPath) : null)
@@ -225,7 +225,7 @@ export class Player {
     const out: Layer[] = frame ? [{ frame, fit: 'cover', transform }] : []
     if (this.mode === 'timeline' && this.project && this.textLayers) {
       const texts = this.project.text.filter((x) => this.t >= x.startMs && this.t < x.startMs + x.durationMs)
-      if (texts.length) out.push(...this.textLayers(texts, this.canvas.width, this.canvas.height))
+      if (texts.length) out.push(...this.textLayers(texts, this.canvas.width, this.canvas.height, this.t))
     }
     return out
   }

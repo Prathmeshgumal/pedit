@@ -61,11 +61,12 @@ test('main can ask the renderer for text PNGs (used by export)', async () => {
   await win.waitForFunction(() => '__peditText' in window)
   const dir = mkdtempSync(join(tmpdir(), 'pedit-png-'))
   const out = await app.evaluate(async (_e, dir) => {
-    const m = (globalThis as unknown as { __peditMain: { renderTextPngs(i: unknown[], w: number, h: number, d: string): Promise<Record<string, string>> } }).__peditMain
+    const m = (globalThis as unknown as { __peditMain: { renderTextPngs(i: unknown[], w: number, h: number, d: string): Promise<Record<string, { path: string; cx: number; cy: number }>> } }).__peditMain
     return m.renderTextPngs([{ id: 't_1', startMs: 0, durationMs: 1000, text: 'Tokyo', style: { font: 'Inter', bold: true, sizePct: 8, color: '#ffffff', position: 'center', background: null } }], 1080, 1920, dir)
   }, dir)
   const { readFileSync } = await import('node:fs')
-  const png = readFileSync(out['t_1'])
+  const png = readFileSync(out['t_1'].path)
+  expect(out['t_1'].cx).toBeCloseTo(540, 0)
   expect(png.subarray(1, 4).toString()).toBe('PNG')
   expect(png.readUInt32BE(16)).toBe(1080) // IHDR width
   expect(png.readUInt32BE(20)).toBe(1920)

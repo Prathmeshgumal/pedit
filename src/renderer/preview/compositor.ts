@@ -2,7 +2,13 @@ import { IDENTITY_TRANSFORM, type ClipTransform } from '@shared/model'
 import { uvMatrix } from '@shared/transform'
 export { coverRect } from './fit'
 
-export type Layer = { frame: VideoFrame | ImageBitmap | OffscreenCanvas | HTMLCanvasElement; fit: 'cover' | 'full'; transform?: ClipTransform }
+export type Layer = {
+  frame: VideoFrame | ImageBitmap | OffscreenCanvas | HTMLCanvasElement; fit: 'cover' | 'full'; transform?: ClipTransform
+  /** 0..1, default 1 */
+  alpha?: number
+  /** For 'full' layers: screen [0,1]² → texture matrix (column-major mat3), e.g. a text animation's move/scale. */
+  uv?: number[]
+}
 
 const FULL = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 // q is the quad position in [0,1]² with y down; m maps it to the source texture (crop, rotate, flip, cover)
@@ -10,12 +16,14 @@ const VS = `#version 300 es
 in vec2 p; uniform mat3 m; out vec2 t;
 void main(){ vec2 q = vec2(p.x*.5+.5, .5-p.y*.5); t = (m * vec3(q, 1.)).xy; gl_Position = vec4(p,0.,1.); }`
 const FS = `#version 300 es
-precision mediump float; in vec2 t; uniform sampler2D s; out vec4 o; void main(){ o = texture(s, t); }`
+precision mediump float; in vec2 t; uniform sampler2D s; uniform float a; out vec4 o;
+void main(){ o = (t.x < 0. || t.y < 0. || t.x > 1. || t.y > 1.) ? vec4(0.) : texture(s, t) * a; }`
 
 /** WebGL2 compositor: draws layers bottom-to-top, video with center-crop cover fit. */
 export class Compositor {
   private gl: WebGL2RenderingContext
   private m: WebGLUniformLocation
+  private a: WebGLUniformLocation
   private textures: WebGLTexture[] = []
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -36,6 +44,7 @@ export class Compositor {
     const loc = gl.getAttribLocation(prog, 'p')
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
     this.m = gl.getUniformLocation(prog, 'm')!
+    this.a = gl.getUniformLocation(prog, 'a')!
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
   }
@@ -69,7 +78,8 @@ export class Compositor {
       if (!w || !h) return
       gl.bindTexture(gl.TEXTURE_2D, this.texture(i))
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src as TexImageSource)
-      gl.uniformMatrix3fv(this.m, false, l.fit === 'cover' ? uvMatrix(w, h, l.transform ?? IDENTITY_TRANSFORM, this.canvas.width, this.canvas.height) : FULL)
+      gl.uniformMatrix3fv(this.m, false, l.fit === 'cover' ? uvMatrix(w, h, l.transform ?? IDENTITY_TRANSFORM, this.canvas.width, this.canvas.height) : l.uv ?? FULL)
+      gl.uniform1f(this.a, l.alpha ?? 1)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     })
   }

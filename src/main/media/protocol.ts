@@ -20,7 +20,7 @@ export function parseRange(header: string | null, size: number): { start: number
   return { start, end }
 }
 
-const TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.bin': 'application/octet-stream', '.png': 'image/png', '.mp3': 'audio/mpeg' }
+const TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.bin': 'application/octet-stream', '.png': 'image/png', '.mp3': 'audio/mpeg', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff2': 'font/woff2' }
 
 function electron(): typeof import('electron') {
   return createRequire(import.meta.url)('electron') as typeof import('electron')

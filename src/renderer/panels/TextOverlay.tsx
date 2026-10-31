@@ -70,9 +70,13 @@ export function TextOverlay({ timeMs, width, height }: { timeMs: number; width: 
       const x = Math.min(1, Math.max(0, (b.cx * k + drag.dx) / width))
       const y = Math.min(1, Math.max(0, (b.cy * k + drag.dy) / height))
       void edit({ type: 'updateText', id: sel.id, style: { position: 'custom', x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 } })
+      // show the box where it was dropped right away; the exact box is re-measured (async) after the edit
+      setBoxes((bs) => ({ ...bs, [sel.id]: { ...b, cx: x * W, cy: y * H } }))
     } else if (drag.kind === 'scale' && Math.abs(drag.f - 1) > 0.02) {
+      if (b) setBoxes((bs) => ({ ...bs, [sel.id]: { ...b, w: b.w * drag.f, h: b.h * drag.f } }))
       void edit({ type: 'updateText', id: sel.id, style: { sizePct: Math.round(Math.min(30, Math.max(2, s.sizePct * drag.f)) * 10) / 10 } })
     } else if (drag.kind === 'rotate' && drag.deg !== (s.rotation ?? 0)) {
+      if (b) setBoxes((bs) => ({ ...bs, [sel.id]: { ...b, rotation: drag.deg } }))
       void edit({ type: 'updateText', id: sel.id, style: { rotation: drag.deg } })
     }
     setDrag(null)

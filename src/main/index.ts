@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { runExport, exportTempDir } from './export/run'
-import { detectEncoders, ffmpegPath } from './media/ffmpeg'
+import { detectEncoders, ffmpegPath, fontsDir } from './media/ffmpeg'
+import { FontLibrary } from './library/fonts'
+import { TextStyleLibrary } from './library/textStyles'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -14,7 +16,7 @@ import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { renderTextPngs } from './textBridge'
 import { startMcpServer, type McpHandle } from './mcp/server'
 import { ChatController } from './chat'
-import type { TextItem } from '../shared/model'
+import type { TextItem, TextStyle } from '../shared/model'
 import type { ExportOptions } from '../shared/ipc'
 
 registerMediaScheme()
@@ -43,6 +45,16 @@ const chat = new ChatController(editor, {
 }, (e) => send(CH.chatEvent, e))
 
 let recents: Recents | null = null
+let fonts: FontLibrary | null = null
+let textStyles: TextStyleLibrary | null = null
+const getFonts = (): FontLibrary => (fonts ??= new FontLibrary(fontsDir(), join(app.getPath('userData'), 'fonts')))
+const getTextStyles = (): TextStyleLibrary => (textStyles ??= new TextStyleLibrary(join(app.getPath('userData'), 'text-styles.json')))
+/** Library calls that change it tell the renderer to reload. */
+const changed = async <T>(p: Promise<T>): Promise<T> => { const r = await p; send(CH.libraryChanged); return r }
+const libraryServices = () => ({
+  fonts: { list: () => getFonts().list(), find: (f: string) => getFonts().find(f), addGoogle: (f: string) => changed(getFonts().addGoogle(f)) },
+  textStyles: { list: () => getTextStyles().list(), find: (n: string) => getTextStyles().find(n), save: (n: string, d: string, s: Partial<TextStyle>) => changed(getTextStyles().save(n, d, s)) }
+})
 const getRecents = (): Recents => (recents ??= new Recents(join(app.getPath('userData'), 'recent.json')))
 
 async function rememberProject(): Promise<void> {
@@ -117,6 +129,14 @@ function registerIpc(): void {
   })
   ipcMain.handle(CH.getStory, () => editor.store ? editor.getStory() : '')
   ipcMain.handle(CH.setStory, (_e, t: string) => editor.setStory(t))
+  ipcMain.handle(CH.listFonts, () => getFonts().list())
+  ipcMain.handle(CH.addFont, (_e, f: string) => changed(getFonts().addGoogle(f)))
+  ipcMain.handle(CH.pickFontFile, async () => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Add a font file', properties: ['openFile'], filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff2'] }] })
+    return r.canceled || !r.filePaths[0] ? null : changed(getFonts().addFile(r.filePaths[0]))
+  })
+  ipcMain.handle(CH.listTextStyles, () => getTextStyles().list())
+  ipcMain.handle(CH.saveTextStyle, (_e, n: string, d: string, s: Partial<TextStyle>) => changed(getTextStyles().save(n, d, s)))
   ipcMain.handle(CH.getSettings, () => getSettings().get())
   ipcMain.handle(CH.setSettings, (_e, patch) => getSettings().set(patch))
   ipcMain.handle(CH.freezeFrame, async (_e, id: string, atMs: number) => { await editor.freezeFrame(id, atMs) })
@@ -211,7 +231,8 @@ app.whenReady().then(async () => {
   mcp = await startMcpServer(() => editor.session, {
     lookAtMedia: (id, count) => editor.lookAtMedia(id, count),
     freezeFrame: (id, atMs, durationMs, rev) => editor.freezeFrame(id, atMs, durationMs, 'claude', rev),
-    getStory: () => editor.getStory()
+    getStory: () => editor.getStory(),
+    ...libraryServices()
   })
   await mcp.writeConfig(mcpConfigPath())
   const envDir = process.env.PEDIT_PROJECT_DIR

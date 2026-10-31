@@ -270,3 +270,17 @@ describe('batch 1 commands', () => {
     expect(s.err({ type: 'addAudio', mediaId: 'm_song', startMs: 1000, lane: 0 })).toBe('overlap')
   })
 })
+
+describe('batch', () => {
+  it('applies several edits as one, or none of them if one fails', () => {
+    const p = emptyProject('b')
+    const r = applyCommand(p, { type: 'batch', summary: 'added 2 captions', commands: [
+      { type: 'addText', text: 'a', startMs: 0, durationMs: 500 }, { type: 'addText', text: 'b', startMs: 600, durationMs: 500 }] }, seqIds())
+    expect(r.project.text.map((t) => t.text)).toEqual(['a', 'b'])
+    expect(r.summary).toBe('added 2 captions')
+    expect(r.affected).toHaveLength(2)
+    expect(() => applyCommand(r.project, { type: 'batch', commands: [
+      { type: 'addText', text: 'c', startMs: 2000, durationMs: 500 }, { type: 'addText', text: 'd', startMs: 100, durationMs: 100 }] }, seqIds())).toThrow(CommandError)
+    expect(r.project.text).toHaveLength(2)
+  })
+})

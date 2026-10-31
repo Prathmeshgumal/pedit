@@ -8,6 +8,15 @@ import { emptyProject, type MediaItem } from '@shared/model'
 import { EditSession } from '@shared/session'
 import { seqIds } from '@shared/ids'
 import { startMcpServer, type McpHandle } from '../../src/main/mcp/server'
+import { FontLibrary } from '../../src/main/library/fonts'
+import { TextStyleLibrary } from '../../src/main/library/textStyles'
+import { resolve } from 'node:path'
+
+const libs = () => ({
+  fonts: new FontLibrary(resolve('resources/fonts'), mkdtempSync(join(tmpdir(), 'mcp-f-')), (async () => new Response('', { status: 400 })) as typeof fetch),
+  textStyles: new TextStyleLibrary(join(mkdtempSync(join(tmpdir(), 'mcp-ts-')), 'ts.json'))
+})
+const services = () => ({ lookAtMedia: async () => ({ jpegBase64: '', times: null }), freezeFrame: async () => '', getStory: async () => '', ...libs() })
 
 const media: MediaItem = {
   id: 'm_a', path: '/v/a.mp4', name: 'a.mp4', folder: 'day1', kind: 'video', createdAt: '2026-03-01T09:00:00Z', importIndex: 0,
@@ -56,8 +65,9 @@ describe('pedit MCP server', () => {
   it('lists exactly the editor tools', async () => {
     const c = await connect(h.token)
     const names = (await c.listTools()).tools.map((t) => t.name).sort()
-    expect(names).toEqual(['add_clip', 'add_text', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline', 'list_media', 'look_at_media',
-      'move_item', 'remove_item', 'replace_clip', 'set_format', 'set_music', 'set_transform', 'set_volume', 'split_item', 'trim_item', 'update_text'])
+    expect(names).toEqual(['add_captions', 'add_clip', 'add_font', 'add_text', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline',
+      'list_fonts', 'list_media', 'list_text_styles', 'look_at_media', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
+      'set_format', 'set_music', 'set_transform', 'set_volume', 'split_item', 'trim_item', 'update_text'])
   })
 
   it('extract_audio and set_transform land in the draft', async () => {
@@ -81,9 +91,50 @@ describe('pedit MCP server', () => {
     expect(session.state().view.text[0].style).toMatchObject({ position: 'custom', x: 0.25, y: 0.75, rotation: -10 })
   })
 
+  it('text uses fonts and styles from the library, and refuses fonts that are not installed', async () => {
+    await h.close()
+    h = await startMcpServer(() => session, services())
+    const c = await connect(h.token)
+    expect(text(await c.callTool({ name: 'list_fonts', arguments: {} }))).toContain('Bebas Neue (display)')
+    expect(text(await c.callTool({ name: 'list_text_styles', arguments: {} }))).toContain('Shorts pop')
+    const a = await c.callTool({ name: 'add_text', arguments: { text: 'Day 1', startMs: 0, durationMs: 2000, preset: 'headline', style: { color: '#ff0000' }, expectedRevision: 0 } }) as R
+    expect(a.isError).toBeFalsy()
+    expect(session.state().view.text[0].style).toMatchObject({ font: 'Bebas Neue', uppercase: true, animIn: 'slide-up', color: '#ff0000' })
+    const bad = await c.callTool({ name: 'update_text', arguments: { id: 't_000001', style: { font: 'Comic Sans' }, expectedRevision: 1 } }) as R
+    expect(bad.isError).toBe(true)
+    expect(text(bad)).toContain('add_font')
+    const fine = await c.callTool({ name: 'update_text', arguments: { id: 't_000001', style: { font: 'bebas neue', outline: { color: '#000000', width: 6 }, shadow: null, letterSpacing: 0.1, animOut: 'pop' }, expectedRevision: 1 } }) as R
+    expect(fine.isError).toBeFalsy()
+    expect(session.state().view.text[0].style).toMatchObject({ font: 'Bebas Neue', outline: { width: 6 }, letterSpacing: 0.1, animOut: 'pop' })
+    const nope = await c.callTool({ name: 'add_text', arguments: { text: 'x', startMs: 5000, durationMs: 500, preset: 'Nope', expectedRevision: 2 } }) as R
+    expect(text(nope)).toContain('list_text_styles')
+  })
+
+  it('adds many captions at once and restyles all text in one call', async () => {
+    await h.close()
+    h = await startMcpServer(() => session, services())
+    const c = await connect(h.token)
+    const r = await c.callTool({ name: 'add_captions', arguments: { captions: [{ text: 'one', startMs: 0, durationMs: 900 }, { text: 'two', startMs: 1000, durationMs: 900 }, { text: 'three', startMs: 2000, durationMs: 900 }], preset: 'Subtitle', expectedRevision: 0 } }) as R
+    expect(r.isError).toBeFalsy()
+    expect(text(r)).toContain('3 captions')
+    const v = session.state().view.text
+    expect(v.map((t) => t.text)).toEqual(['one', 'two', 'three'])
+    expect(v.every((t) => t.style.position === 'bottom')).toBe(true)
+    const rev = session.state().viewRevision
+    const rs = await c.callTool({ name: 'restyle_text', arguments: { preset: 'Shorts pop', style: { color: '#ffee00' }, expectedRevision: rev } }) as R
+    expect(rs.isError).toBeFalsy()
+    expect(session.state().view.text.every((t) => t.style.font === 'Montserrat' && t.style.color === '#ffee00')).toBe(true)
+    const sv = await c.callTool({ name: 'save_text_style', arguments: { name: 'Trip caption', description: 'for my trip', style: { font: 'Caveat', color: '#ffffff' } } }) as R
+    expect(sv.isError).toBeFalsy()
+    expect(text(await c.callTool({ name: 'list_text_styles', arguments: {} }))).toContain('Trip caption')
+    const overlap = await c.callTool({ name: 'add_captions', arguments: { captions: [{ text: 'a', startMs: 100, durationMs: 300 }], expectedRevision: session.state().viewRevision } }) as R
+    expect(overlap.isError).toBe(true)
+    expect(session.state().view.text).toHaveLength(3)
+  })
+
   it('look_at_media returns a picture Claude can see, with the frame times', async () => {
     await h.close()
-    h = await startMcpServer(() => session, { lookAtMedia: async (mid, count) => ({ jpegBase64: Buffer.from(`jpeg:${mid}:${count}`).toString('base64'), times: [500, 1500] }), freezeFrame: async () => 'froze', getStory: async () => '# Trip' })
+    h = await startMcpServer(() => session, { lookAtMedia: async (mid, count) => ({ jpegBase64: Buffer.from(`jpeg:${mid}:${count}`).toString('base64'), times: [500, 1500] }), freezeFrame: async () => 'froze', getStory: async () => '# Trip', ...libs() })
     const c = await connect(h.token)
     const r = await c.callTool({ name: 'look_at_media', arguments: { mediaId: 'm_a', count: 8 } }) as { content: Array<{ type: string; mimeType?: string; data?: string; text?: string }> }
     const img = r.content.find((x) => x.type === 'image')!

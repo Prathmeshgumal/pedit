@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { timelineDurationMs, type ItemId, type Project, type TextItem } from '../../shared/model'
 import { runFfmpeg, type EncoderInfo } from '../media/ffmpeg'
-import { buildExportArgs, missingMedia, outputSize, type ExportOptions } from './graph'
+import { buildExportArgs, missingMedia, outputSize, type ExportOptions, type TextPng } from './graph'
 
 export type { ExportOptions } from './graph'
 
 export interface ExportDeps {
-  renderTextPngs: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, string>>
+  renderTextPngs: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, TextPng>>
   enc: EncoderInfo
   onProgress: (pct: number) => void
   signal: AbortSignal
