@@ -3,6 +3,7 @@ import { useUi, fmtDur } from '../store'
 import { Player } from '../preview/player'
 import { setPlayer } from '../preview/instance'
 import { textLayers } from '../text/layers'
+import { TextOverlay } from './TextOverlay'
 
 export function PreviewPanel() {
   const view = useUi((s) => s.project)
@@ -90,8 +91,11 @@ export function PreviewPanel() {
         ) : <span>Timeline</span>}
       </div>
       <div ref={box} className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
-        <canvas data-testid="preview-canvas" data-loaded={loaded ? 'true' : 'false'} ref={canvas}
-          style={{ width: size.w, height: size.h, visibility: loaded ? 'visible' : 'hidden' }} />
+        <div className="relative" style={{ width: size.w, height: size.h }}>
+          <canvas data-testid="preview-canvas" data-loaded={loaded ? 'true' : 'false'} ref={canvas}
+            style={{ width: size.w, height: size.h, visibility: loaded ? 'visible' : 'hidden', display: 'block' }} />
+          {!clipId && loaded && <TextOverlay timeMs={t} width={size.w} height={size.h} />}
+        </div>
         {(!loaded || empty) && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-neutral-500">
             {clipId && clip ? (clip.status === 'offline' ? 'Media offline' : clipReady ? 'Loading…'

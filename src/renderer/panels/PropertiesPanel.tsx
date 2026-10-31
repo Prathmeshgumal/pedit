@@ -36,8 +36,10 @@ function TextProps({ id }: { id: string }) {
       <Row label="Position">
         <select className="rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={t.style.position} onChange={(e) => style({ position: e.target.value as TextStyle['position'] })}>
           <option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option>
+          <option value="custom">Custom (drag in preview)</option>
         </select>
       </Row>
+      <Row label="Rotation"><input type="range" min={-180} max={180} value={t.style.rotation ?? 0} className="flex-1" onChange={(e) => style({ rotation: Number(e.target.value) })} /><span className="w-10 text-right">{t.style.rotation ?? 0}°</span></Row>
       <Row label="Bold"><input type="checkbox" checked={t.style.bold} onChange={(e) => style({ bold: e.target.checked })} /></Row>
       <Row label="Background">
         <input type="checkbox" checked={t.style.background !== null} onChange={(e) => style({ background: e.target.checked ? '#000000aa' : null })} />

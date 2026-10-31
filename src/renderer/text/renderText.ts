@@ -26,28 +26,49 @@ function wrap(ctx: OffscreenCanvasRenderingContext2D, text: string, maxW: number
   return lines
 }
 
+interface Layout { px: number; lines: string[]; ascent: number; lineH: number; blockH: number; maxW: number; pad: number; cx: number; top: number }
+
+function layout(ctx: OffscreenCanvasRenderingContext2D, item: TextItem, width: number, height: number): Layout {
+  const s = item.style
+  const px = Math.round((height * s.sizePct) / 100)
+  ctx.font = `${s.bold ? 700 : 400} ${px}px Inter`
+  const lines = wrap(ctx, item.text, width * 0.9)
+  const m = ctx.measureText('Hg')
+  const ascent = m.fontBoundingBoxAscent, descent = m.fontBoundingBoxDescent
+  const lineH = Math.round(px * 1.2)
+  const blockH = lineH * (lines.length - 1) + ascent + descent
+  const maxW = Math.max(...lines.map((l) => ctx.measureText(l).width))
+  const margin = height * 0.08
+  const pad = s.background ? px * 0.4 : 0
+  let cx = width / 2
+  let top: number
+  if (s.position === 'custom') { cx = (s.x ?? 0.5) * width; top = (s.y ?? 0.5) * height - blockH / 2 }
+  else top = s.position === 'top' ? margin + pad : s.position === 'bottom' ? height - margin - pad - blockH : (height - blockH) / 2
+  return { px, lines, ascent, lineH, blockH, maxW, pad, cx, top }
+}
+
+/** Where the text block sits in a width×height frame (centre, size incl. background padding, rotation). */
+export async function textBox(item: TextItem, width: number, height: number): Promise<{ cx: number; cy: number; w: number; h: number; rotation: number }> {
+  await loadFonts()
+  const ctx = new OffscreenCanvas(1, 1).getContext('2d')!
+  const l = layout(ctx, item, width, height)
+  return { cx: l.cx, cy: l.top + l.blockH / 2, w: l.maxW + l.pad * 2, h: l.blockH + l.pad * 2, rotation: item.style.rotation ?? 0 }
+}
+
 /** Full-frame transparent canvas with the text drawn as it appears in preview and export. */
 export async function renderText(item: TextItem, width: number, height: number): Promise<OffscreenCanvas> {
   await loadFonts()
   const c = new OffscreenCanvas(width, height)
   const ctx = c.getContext('2d')!
   const s = item.style
-  const px = Math.round((height * s.sizePct) / 100)
-  ctx.font = `${s.bold ? 700 : 400} ${px}px Inter`
+  const { px, lines, ascent, lineH, blockH, maxW, pad, cx, top } = layout(ctx, item, width, height)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'alphabetic'
-  const lines = wrap(ctx, item.text, width * 0.9)
-  const m = ctx.measureText('Hg')
-  const ascent = m.fontBoundingBoxAscent, descent = m.fontBoundingBoxDescent
-  const lineH = Math.round(px * 1.2)
-  const blockH = lineH * (lines.length - 1) + ascent + descent
-  const margin = height * 0.08
-  const pad = s.background ? px * 0.4 : 0
-  const top = s.position === 'top' ? margin + pad : s.position === 'bottom' ? height - margin - pad - blockH : (height - blockH) / 2
-  const cx = width / 2
-
+  if (s.rotation) {
+    const cy = top + blockH / 2
+    ctx.translate(cx, cy); ctx.rotate((s.rotation * Math.PI) / 180); ctx.translate(-cx, -cy)
+  }
   if (s.background) {
-    const maxW = Math.max(...lines.map((l) => ctx.measureText(l).width))
     ctx.fillStyle = s.background
     const r = px * 0.2, x = cx - maxW / 2 - pad, y = top - pad, w = maxW + pad * 2, h = blockH + pad * 2
     ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()

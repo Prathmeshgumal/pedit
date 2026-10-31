@@ -71,3 +71,52 @@ test('main can ask the renderer for text PNGs (used by export)', async () => {
   expect(png.readUInt32BE(20)).toBe(1920)
   await app.close()
 })
+
+test('drag text in the preview to move it, drag its corner to resize, its top handle to rotate', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'TM.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const ids = await mediaIds(win)
+  await pedit(win, 'edit', { type: 'addClip', mediaId: ids['h264_1080p30.mp4'] })
+  await pedit(win, 'edit', { type: 'addText', text: 'MOVE ME', startMs: 0, durationMs: 4000 })
+  await call(win, 'seek', 1000)
+  const canvas = win.locator('[data-testid=preview-canvas]')
+  await expect(canvas).toHaveAttribute('data-loaded', 'true', { timeout: 10000 })
+  const c = (await canvas.boundingBox())!
+  const style = async (): Promise<{ position: string; x?: number; y?: number; sizePct: number; rotation?: number }> =>
+    (await pedit<{ view: { text: Array<{ style: { position: string; x?: number; y?: number; sizePct: number; rotation?: number } }> } }>(win, 'getState')).view.text[0].style
+
+  // click the text (centre of the frame) to select it: a box with handles appears
+  await win.mouse.click(c.x + c.width / 2, c.y + c.height / 2)
+  const box = win.locator('[data-testid=text-box]')
+  await expect(box).toBeVisible()
+
+  // drag it right by 25% and down by 20%
+  await win.mouse.move(c.x + c.width / 2, c.y + c.height / 2)
+  await win.mouse.down()
+  await win.mouse.move(c.x + c.width * 0.6, c.y + c.height * 0.6, { steps: 5 })
+  await win.mouse.move(c.x + c.width * 0.75, c.y + c.height * 0.7, { steps: 5 })
+  await win.mouse.up()
+  await expect.poll(async () => (await style()).position).toBe('custom')
+  const s1 = await style()
+  expect(Math.abs(s1.x! - 0.75)).toBeLessThan(0.03)
+  expect(Math.abs(s1.y! - 0.7)).toBeLessThan(0.03)
+
+  // the corner handle makes it bigger
+  const corner = (await win.locator('[data-testid=text-handle-scale]').boundingBox())!
+  await win.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2)
+  await win.mouse.down()
+  await win.mouse.move(corner.x + 60, corner.y + 30, { steps: 5 })
+  await win.mouse.up()
+  await expect.poll(async () => (await style()).sizePct).toBeGreaterThan(8.5)
+
+  // the top handle rotates it clockwise when dragged to the right
+  const rot = (await win.locator('[data-testid=text-handle-rotate]').boundingBox())!
+  await win.mouse.move(rot.x + rot.width / 2, rot.y + rot.height / 2)
+  await win.mouse.down()
+  await win.mouse.move(rot.x + 120, rot.y + 40, { steps: 5 })
+  await win.mouse.up()
+  await expect.poll(async () => (await style()).rotation ?? 0).toBeGreaterThan(10)
+  await app.close()
+})
