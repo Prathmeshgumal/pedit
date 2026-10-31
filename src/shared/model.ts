@@ -28,19 +28,30 @@ export interface MediaItem {
   error?: string
 }
 
-export interface VideoItem { id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number }
+/** Per-clip framing: crop (fractions of the upright source), then rotate clockwise, then flip. */
+export interface ClipTransform { rotate: 0 | 90 | 180 | 270; flipH: boolean; flipV: boolean; crop: { x: number; y: number; w: number; h: number } }
+export const IDENTITY_TRANSFORM: ClipTransform = { rotate: 0, flipH: false, flipV: false, crop: { x: 0, y: 0, w: 1, h: 1 } }
+
+export interface VideoItem { id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number; transform?: ClipTransform }
 
 export interface TextStyle {
   font: 'Inter'
   bold: boolean
   sizePct: number
   color: string
-  position: 'top' | 'center' | 'bottom'
+  /** 'custom' places the block's centre at (x, y), fractions of the frame. */
+  position: 'top' | 'center' | 'bottom' | 'custom'
   background: string | null
+  x?: number
+  y?: number
+  /** Degrees clockwise around the block centre. */
+  rotation?: number
 }
 
 export interface TextItem { id: ItemId; startMs: number; durationMs: number; text: string; style: TextStyle }
-export interface AudioItem { id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number }
+/** lane 0 is the music lane; missing lane means 0. */
+export interface AudioItem { id: ItemId; mediaId: MediaId; startMs: number; inMs: number; outMs: number; volume: number; lane?: number }
+export const laneOf = (a: AudioItem): number => a.lane ?? 0
 
 export interface Project {
   id: string

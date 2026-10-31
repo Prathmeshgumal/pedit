@@ -171,3 +171,94 @@ describe('project-wide', () => {
     expect(r.project.revision).toBe(before.revision)
   })
 })
+
+describe('batch 1 commands', () => {
+  const clip = (s: ReturnType<typeof setup>, m = 'm_a'): void => { s.run({ type: 'addClip', mediaId: m }) }
+
+  it('setTransform merges and clamps crop', () => {
+    const s = setup(); clip(s)
+    s.run({ type: 'setTransform', id: 'c_000001', transform: { rotate: 90 } })
+    s.run({ type: 'setTransform', id: 'c_000001', transform: { flipH: true } })
+    expect(s.p.video[0].transform).toEqual({ rotate: 90, flipH: true, flipV: false, crop: { x: 0, y: 0, w: 1, h: 1 } })
+    expect(s.err({ type: 'setTransform', id: 'c_000001', transform: { crop: { x: -1, y: 0, w: 2, h: 0.01 } } })).toBe('invalid')
+    s.run({ type: 'setTransform', id: 'c_000001', transform: { crop: { x: 0.25, y: 0, w: 0.5, h: 1 } } })
+    expect(s.p.video[0].transform!.crop).toEqual({ x: 0.25, y: 0, w: 0.5, h: 1 })
+  })
+
+  it('extractAudio puts the clip sound on a free lane and mutes the clip', () => {
+    const s = setup(); clip(s)
+    s.run({ type: 'setMusic', mediaId: 'm_song' })
+    s.run({ type: 'extractAudio', id: 'c_000001' })
+    const extracted = s.p.audio.find((a) => a.mediaId === 'm_a')!
+    expect(extracted).toMatchObject({ startMs: 0, inMs: 0, outMs: 5000, volume: 1, lane: 1 })
+    expect(s.p.video[0].volume).toBe(0)
+    s.p.media.push({ ...s.p.media[1], id: 'm_mute', hasAudio: false })
+    s.run({ type: 'addClip', mediaId: 'm_mute' })
+    expect(s.err({ type: 'extractAudio', id: s.p.video[1].id })).toBe('invalid')
+  })
+
+  it('extracted audio goes to lane 0 when it is free', () => {
+    const s = setup(); clip(s)
+    s.run({ type: 'extractAudio', id: 'c_000001' })
+    expect(s.p.audio[0].lane ?? 0).toBe(0)
+  })
+
+  it('setMusic replaces only the music lane', () => {
+    const s = setup(); clip(s)
+    s.run({ type: 'setMusic', mediaId: 'm_song' })
+    s.run({ type: 'extractAudio', id: 'c_000001' })
+    s.run({ type: 'setMusic', mediaId: 'm_song', volume: 0.5 })
+    expect(s.p.audio.map((a) => [a.mediaId, a.lane ?? 0])).toEqual([['m_a', 1], ['m_song', 0]])
+  })
+
+  it('removeMedia refuses media in use unless forced', () => {
+    const s = setup(); clip(s); clip(s, 'm_b'); clip(s)
+    expect(s.err({ type: 'removeMedia', id: 'm_a' })).toBe('in_use')
+    s.run({ type: 'removeMedia', id: 'm_c' })
+    expect(s.p.media.some((m) => m.id === 'm_c')).toBe(false)
+    s.run({ type: 'removeMedia', id: 'm_a', force: true })
+    expect(s.p.video.map((v) => [v.mediaId, v.startMs])).toEqual([['m_b', 0]])
+  })
+
+  it('duplicateItem copies right after the original', () => {
+    const s = setup(); clip(s); clip(s, 'm_b')
+    s.run({ type: 'duplicateItem', id: 'c_000001' })
+    expect(s.p.video.map((v) => [v.mediaId, v.startMs])).toEqual([['m_a', 0], ['m_a', 5000], ['m_b', 10000]])
+    s.run({ type: 'addText', text: 'hi', startMs: 0, durationMs: 1000 })
+    const tid = s.p.text[0].id
+    s.run({ type: 'duplicateItem', id: tid })
+    expect(s.p.text.map((t) => t.startMs)).toEqual([0, 1000])
+  })
+
+  it('trimToPlayhead removes the left or right part', () => {
+    const s = setup(); clip(s)
+    s.run({ type: 'trimToPlayhead', id: 'c_000001', atMs: 2000, side: 'left' })
+    expect(s.p.video[0]).toMatchObject({ startMs: 0, inMs: 2000, outMs: 5000 })
+    const t = setup(); clip(t)
+    t.run({ type: 'trimToPlayhead', id: 'c_000001', atMs: 2000, side: 'right' })
+    expect(t.p.video[0]).toMatchObject({ inMs: 0, outMs: 2000 })
+  })
+
+  it('insertFreeze splits the clip and inserts a still', () => {
+    const s = setup(); clip(s)
+    s.p.media.push({ ...s.p.media[0], id: 'm_still', kind: 'image', durationMs: 0, fps: 0, hasAudio: false })
+    s.run({ type: 'insertFreeze', id: 'c_000001', atMs: 2000, mediaId: 'm_still', durationMs: 3000 })
+    expect(s.p.video.map((v) => [v.mediaId, v.outMs - v.inMs])).toEqual([['m_a', 2000], ['m_still', 3000], ['m_a', 3000]])
+  })
+
+  it('replaceClip keeps place and length', () => {
+    const s = setup(); clip(s); clip(s, 'm_b')
+    s.p.media.push({ ...s.p.media[0], id: 'm_short', durationMs: 3000 })
+    s.run({ type: 'replaceClip', id: 'c_000001', mediaId: 'm_short' })
+    expect(s.p.video.map((v) => [v.mediaId, v.inMs, v.outMs, v.startMs])).toEqual([['m_short', 0, 3000, 0], ['m_b', 0, 5000, 3000]])
+  })
+
+  it('music overlap is checked per lane, and items without a lane are lane 0', () => {
+    const s = setup(); clip(s)
+    s.run({ type: 'setMusic', mediaId: 'm_song' })
+    s.run({ type: 'extractAudio', id: 'c_000001' })
+    expect(s.err({ type: 'moveItem', id: s.p.audio.find((a) => a.lane === 1)!.id, toMs: 0, lane: 0 })).toBe('overlap')
+    s.run({ type: 'moveItem', id: s.p.audio.find((a) => a.lane === 1)!.id, toMs: 100, lane: 2 })
+    expect(s.p.audio.find((a) => a.mediaId === 'm_a')).toMatchObject({ lane: 2, startMs: 100 })
+  })
+})

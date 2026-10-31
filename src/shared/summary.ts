@@ -1,5 +1,6 @@
 import { timelineDurationMs, type Project } from './model'
 import { fmtTime } from './time'
+import { transformText } from './commands'
 export { fmtTime } from './time'
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`
@@ -9,10 +10,19 @@ export function timelineSummary(p: Project, opts: { draft: boolean; revision: nu
   const s = p.settings
   const head = `rev ${opts.revision}${opts.draft ? ' · DRAFT' : ''} · ${s.aspect} ${s.width}x${s.height} ${s.fps}fps · length ${fmtTime(timelineDurationMs(p))}`
   const block = (title: string, lines: string[]): string => `${title}\n${lines.length ? lines.join('\n') : '  (empty)'}`
-  const video = p.video.map((v) => `  ${v.id} ${fmtTime(v.startMs)}-${fmtTime(v.startMs + v.outMs - v.inMs)} ${name(v.mediaId)} [src ${fmtTime(v.inMs)}-${fmtTime(v.outMs)}]${v.volume !== 1 ? ` vol ${pct(v.volume)}` : ''}`)
-  const text = p.text.map((t) => `  ${t.id} ${fmtTime(t.startMs)}-${fmtTime(t.startMs + t.durationMs)} ${JSON.stringify(t.text)} (${t.style.position})`)
-  const music = p.audio.map((a) => `  ${a.id} ${fmtTime(a.startMs)}-${fmtTime(a.startMs + a.outMs - a.inMs)} ${name(a.mediaId)} vol ${pct(a.volume)}`)
-  return [head, block('VIDEO', video), block('TEXT', text), block('MUSIC', music)].join('\n')
+  const video = p.video.map((v) => {
+    const tf = transformText(v.transform)
+    return `  ${v.id} ${fmtTime(v.startMs)}-${fmtTime(v.startMs + v.outMs - v.inMs)} ${name(v.mediaId)} [src ${fmtTime(v.inMs)}-${fmtTime(v.outMs)}]${v.volume !== 1 ? ` vol ${pct(v.volume)}` : ''}${tf ? ` ${tf}` : ''}`
+  })
+  const where = (st: Project['text'][number]['style']): string => {
+    const rot = st.rotation ? ` rot ${Math.round(st.rotation)}` : ''
+    return st.position === 'custom' ? `x ${(st.x ?? 0.5).toFixed(2)} y ${(st.y ?? 0.5).toFixed(2)}${rot}` : `${st.position}${rot}`
+  }
+  const text = p.text.map((t) => `  ${t.id} ${fmtTime(t.startMs)}-${fmtTime(t.startMs + t.durationMs)} ${JSON.stringify(t.text)} (${where(t.style)})`)
+  const lanes = p.audio.some((a) => (a.lane ?? 0) > 0) || p.audio.some((a) => p.video.some((v) => v.mediaId === a.mediaId))
+  const music = [...p.audio].sort((a, b) => (a.lane ?? 0) - (b.lane ?? 0) || a.startMs - b.startMs)
+    .map((a) => `  ${a.id} ${fmtTime(a.startMs)}-${fmtTime(a.startMs + a.outMs - a.inMs)} ${name(a.mediaId)} vol ${pct(a.volume)}${lanes ? ` lane ${a.lane ?? 0}` : ''}`)
+  return [head, block('VIDEO', video), block('TEXT', text), block('AUDIO', music)].join('\n')
 }
 
 export function mediaSummary(p: Project): string {

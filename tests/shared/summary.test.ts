@@ -21,12 +21,27 @@ describe('summaries', () => {
       'rev 7 · DRAFT · 9:16 1080x1920 30fps · length 0:03.0\n' +
       'VIDEO\n  c_000001 0:00.0-0:03.0 shrine.mov [src 0:05.0-0:08.0]\n' +
       'TEXT\n  t_000002 0:00.0-0:02.0 "Tokyo" (center)\n' +
-      'MUSIC\n  a_000003 0:00.0-0:30.0 track_02.mp3 vol 80%')
+      'AUDIO\n  a_000003 0:00.0-0:30.0 track_02.mp3 vol 80%')
+  })
+
+  it('prints framing, audio lanes and custom text positions only when set', () => {
+    const ids = seqIds()
+    let p = projectWith([media('m_s', { name: 'shrine.mov', durationMs: 10000 })])
+    for (const c of [
+      { type: 'addClip', mediaId: 'm_s', inMs: 0, outMs: 3000 },
+      { type: 'setTransform', id: 'c_000001', transform: { rotate: 90, flipH: true, crop: { x: 0.1, y: 0, w: 0.8, h: 1 } } },
+      { type: 'extractAudio', id: 'c_000001' },
+      { type: 'addText', text: 'Hi', startMs: 0, durationMs: 1000, style: { position: 'custom', x: 0.3, y: 0.7, rotation: 15 } }
+    ] as const) p = applyCommand(p, c, ids).project
+    const s = timelineSummary(p, { draft: false, revision: 1 })
+    expect(s).toContain('c_000001 0:00.0-0:03.0 shrine.mov [src 0:00.0-0:03.0] vol 0% rot 90 flipH crop 10%,0%,80%,100%')
+    expect(s).toContain('"Hi" (x 0.30 y 0.70 rot 15)')
+    expect(s).toContain('a_000002 0:00.0-0:03.0 shrine.mov vol 100% lane 0')
   })
 
   it('prints empty tracks and omits DRAFT', () => {
     expect(timelineSummary(projectWith([]), { draft: false, revision: 0 })).toBe(
-      'rev 0 · 16:9 1920x1080 30fps · length 0:00.0\nVIDEO\n  (empty)\nTEXT\n  (empty)\nMUSIC\n  (empty)')
+      'rev 0 · 16:9 1920x1080 30fps · length 0:00.0\nVIDEO\n  (empty)\nTEXT\n  (empty)\nAUDIO\n  (empty)')
   })
 
   it('lists media by capture time', () => {

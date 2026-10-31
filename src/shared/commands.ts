@@ -1,4 +1,4 @@
-import { ASPECT_SIZE, DEFAULT_TEXT_STYLE, MIN_ITEM_MS, STILL_DEFAULT_MS, STILL_MAX_MS, type Aspect, type AudioItem, type ItemId, type MediaId, type MediaItem,
+import { ASPECT_SIZE, DEFAULT_TEXT_STYLE, IDENTITY_TRANSFORM, MIN_ITEM_MS, STILL_DEFAULT_MS, STILL_MAX_MS, laneOf, type Aspect, type ClipTransform, type AudioItem, type ItemId, type MediaId, type MediaItem,
   type Project, type TextItem, type TextStyle, type VideoItem } from './model'
 import type { IdGen } from './ids'
 import { fmtTime } from './time'
@@ -8,7 +8,7 @@ export type Command =
   | { type: 'updateMedia'; id: MediaId; patch: Partial<MediaItem> }
   | { type: 'addClip'; mediaId: MediaId; inMs?: number; outMs?: number; after?: ItemId | null; atMs?: number }
   | { type: 'removeItem'; id: ItemId }
-  | { type: 'moveItem'; id: ItemId; after?: ItemId | null; toMs?: number }
+  | { type: 'moveItem'; id: ItemId; after?: ItemId | null; toMs?: number; lane?: number }
   | { type: 'trimItem'; id: ItemId; inMs?: number; outMs?: number }
   | { type: 'splitItem'; id: ItemId; atMs: number }
   | { type: 'addText'; text: string; startMs: number; durationMs: number; style?: Partial<TextStyle> }
@@ -16,8 +16,15 @@ export type Command =
   | { type: 'setMusic'; mediaId: MediaId; inMs?: number; volume?: number }
   | { type: 'setVolume'; id: ItemId; volume: number }
   | { type: 'setFormat'; aspect: Aspect }
+  | { type: 'setTransform'; id: ItemId; transform: Partial<ClipTransform> }
+  | { type: 'extractAudio'; id: ItemId }
+  | { type: 'removeMedia'; id: MediaId; force?: boolean }
+  | { type: 'duplicateItem'; id: ItemId }
+  | { type: 'trimToPlayhead'; id: ItemId; atMs: number; side: 'left' | 'right' }
+  | { type: 'insertFreeze'; id: ItemId; atMs: number; mediaId: MediaId; durationMs: number }
+  | { type: 'replaceClip'; id: ItemId; mediaId: MediaId }
 
-export type CommandErrorCode = 'not_found' | 'overlap' | 'invalid' | 'media_not_found'
+export type CommandErrorCode = 'not_found' | 'overlap' | 'invalid' | 'media_not_found' | 'in_use'
 
 export class CommandError extends Error {
   constructor(public code: CommandErrorCode, message: string) {
@@ -88,6 +95,14 @@ function assertNoOverlap(items: Array<{ id: ItemId; startMs: number; end: number
 
 const textSpans = (t: TextItem[]): Array<{ id: ItemId; startMs: number; end: number }> => t.map((x) => ({ id: x.id, startMs: x.startMs, end: x.startMs + x.durationMs }))
 const audioSpans = (a: AudioItem[]): Array<{ id: ItemId; startMs: number; end: number }> => a.map((x) => ({ id: x.id, startMs: x.startMs, end: x.startMs + dur(x) }))
+/** Music/audio items may only overlap on different lanes. */
+function assertAudioLanes(a: AudioItem[]): void {
+  for (const lane of new Set(a.map(laneOf))) assertNoOverlap(audioSpans(a.filter((x) => laneOf(x) === lane)), lane === 0 ? 'music' : `audio lane ${lane}`)
+}
+/** Lowest lane with nothing between start and end. */
+function freeLane(a: AudioItem[], start: number, end: number, from = 0): number {
+  for (let lane = from; ; lane++) if (!a.some((x) => laneOf(x) === lane && x.startMs < end && x.startMs + dur(x) > start)) return lane
+}
 
 /** How far into a file an item can reach: a photo has no end of its own. */
 const sourceLength = (m: MediaItem): number => (m.kind === 'image' ? STILL_MAX_MS : m.durationMs)
@@ -98,6 +113,14 @@ function clampTrim(item: { inMs: number; outMs: number }, media: MediaItem, inMs
   const o = int(Math.max(0, Math.min(outMs ?? item.outMs, len)))
   if (o - i < MIN_ITEM_MS) fail('invalid', `resulting length ${o - i}ms is shorter than ${MIN_ITEM_MS}ms`)
   return { inMs: i, outMs: o }
+}
+
+export function transformText(t: ClipTransform | undefined): string {
+  if (!t) return ''
+  const c = t.crop
+  const pct = (v: number): string => `${Math.round(v * 100)}%`
+  return [t.rotate ? `rot ${t.rotate}` : '', t.flipH ? 'flipH' : '', t.flipV ? 'flipV' : '',
+    c.x || c.y || c.w < 1 || c.h < 1 ? `crop ${pct(c.x)},${pct(c.y)},${pct(c.w)},${pct(c.h)}` : ''].filter(Boolean).join(' ')
 }
 
 /** Pure: returns a new project, never mutates `p`, never changes `revision`. */
@@ -154,7 +177,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       if (cmd.toMs === undefined) fail('invalid', 'text and music items move with toMs')
       const to = int(Math.max(0, cmd.toMs!))
       if (track === 'text') { n.text[index].startMs = to; assertNoOverlap(textSpans(n.text), 'text') }
-      else { n.audio[index].startMs = to; assertNoOverlap(audioSpans(n.audio), 'music') }
+      else { n.audio[index].startMs = to; if (cmd.lane !== undefined) n.audio[index].lane = Math.max(0, int(cmd.lane)); assertAudioLanes(n.audio) }
       return done(`moved ${itemName(n, cmd.id)} to ${fmtTime(to)}`, [cmd.id])
     }
 
@@ -173,7 +196,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
         if (dur(item) < MIN_ITEM_MS) fail('invalid', `resulting length ${dur(item)}ms is shorter than ${MIN_ITEM_MS}ms`)
       }
       if (track === 'video') ripple(n.video)
-      else assertNoOverlap(audioSpans(n.audio), 'music')
+      else assertAudioLanes(n.audio)
       return done(`trimmed ${itemName(n, cmd.id)} to ${fmtTime(dur(item))} (was ${fmtTime(was)})`, [cmd.id])
     }
 
@@ -229,7 +252,8 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       if (volume < 0 || volume > 2) fail('invalid', 'volume must be between 0 and 2')
       const inMs = int(Math.max(0, Math.min(cmd.inMs ?? 0, m.durationMs - MIN_ITEM_MS)))
       const a: AudioItem = { id: ids('a'), mediaId: m.id, startMs: 0, inMs, outMs: m.durationMs, volume }
-      n.audio = [a]
+      a.lane = 0
+      n.audio = [...n.audio.filter((x) => laneOf(x) !== 0), a]
       return done(`set music ${a.id} to ${m.name} from ${fmtTime(inMs)} at ${Math.round(volume * 100)}%`, [a.id])
     }
 
@@ -244,5 +268,117 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
     case 'setFormat':
       n.settings = { ...n.settings, aspect: cmd.aspect, ...ASPECT_SIZE[cmd.aspect] }
       return done(`set format to ${cmd.aspect} (${n.settings.width}x${n.settings.height})`, [])
+
+    case 'setTransform': {
+      const { track, index } = locate(n, cmd.id)
+      if (track !== 'video') fail('invalid', 'only video clips and photos can be rotated, flipped or cropped')
+      const v = n.video[index]
+      const t: ClipTransform = { ...structuredClone(v.transform ?? IDENTITY_TRANSFORM), ...structuredClone(cmd.transform) }
+      if (![0, 90, 180, 270].includes(t.rotate)) fail('invalid', 'rotate must be 0, 90, 180 or 270')
+      const c = t.crop
+      const ok = (x: number): boolean => Number.isFinite(x) && x >= 0 && x <= 1
+      if (![c.x, c.y, c.w, c.h].every(ok) || c.w < 0.05 || c.h < 0.05 || c.x + c.w > 1.0001 || c.y + c.h > 1.0001) fail('invalid', 'crop must stay inside the frame and keep at least 5% of it')
+      v.transform = t
+      return done(`set framing of ${itemName(n, cmd.id)}: ${transformText(t) || 'original'}`, [cmd.id])
+    }
+
+    case 'extractAudio': {
+      const { track, index } = locate(n, cmd.id)
+      if (track !== 'video') fail('invalid', 'only video clips have sound to extract')
+      const v = n.video[index]
+      const m = findMedia(n, v.mediaId)
+      if (!m.hasAudio || m.kind !== 'video') fail('invalid', `${m.name} has no sound`)
+      const a: AudioItem = { id: ids('a'), mediaId: m.id, startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, volume: v.volume || 1, lane: freeLane(n.audio, v.startMs, v.startMs + dur(v)) }
+      n.audio.push(a)
+      v.volume = 0
+      return done(`extracted audio of ${itemName(n, cmd.id)} to ${a.id} (lane ${a.lane})`, [cmd.id, a.id])
+    }
+
+    case 'removeMedia': {
+      const m = findMedia(n, cmd.id)
+      const uses = n.video.filter((v) => v.mediaId === m.id).length + n.audio.filter((a) => a.mediaId === m.id).length
+      if (uses && !cmd.force) fail('in_use', `${m.name} is used ${uses} time${uses > 1 ? 's' : ''} on the timeline`)
+      n.video = n.video.filter((v) => v.mediaId !== m.id)
+      n.audio = n.audio.filter((a) => a.mediaId !== m.id)
+      n.media = n.media.filter((x) => x.id !== m.id)
+      ripple(n.video)
+      return done(`removed ${m.name} from the library${uses ? ` and its ${uses} timeline item${uses > 1 ? 's' : ''}` : ''}`, [m.id])
+    }
+
+    case 'duplicateItem': {
+      const { track, index } = locate(n, cmd.id)
+      if (track === 'video') {
+        const copy = { ...structuredClone(n.video[index]), id: ids('c') }
+        n.video.splice(index + 1, 0, copy)
+        ripple(n.video)
+        return done(`duplicated ${itemName(n, cmd.id)} as ${copy.id}`, [copy.id])
+      }
+      if (track === 'text') {
+        const t = n.text[index]
+        const copy: TextItem = { ...structuredClone(t), id: ids('t'), startMs: t.startMs + t.durationMs }
+        n.text.push(copy)
+        n.text.sort((a, b) => a.startMs - b.startMs)
+        assertNoOverlap(textSpans(n.text), 'text')
+        return done(`duplicated ${itemName(n, cmd.id)} as ${copy.id}`, [copy.id])
+      }
+      const a = n.audio[index]
+      const start = a.startMs + dur(a)
+      const copy: AudioItem = { ...structuredClone(a), id: ids('a'), startMs: start, lane: freeLane(n.audio, start, start + dur(a), laneOf(a)) }
+      n.audio.push(copy)
+      return done(`duplicated ${itemName(n, cmd.id)} as ${copy.id}`, [copy.id])
+    }
+
+    case 'trimToPlayhead': {
+      const { track, index } = locate(n, cmd.id)
+      const at = int(cmd.atMs)
+      if (track === 'text') {
+        const t = n.text[index]
+        const cut = at - t.startMs
+        if (cut < MIN_ITEM_MS || t.durationMs - cut < MIN_ITEM_MS) fail('invalid', `playhead ${fmtTime(at)} is not inside ${cmd.id}`)
+        if (cmd.side === 'left') { t.startMs = at; t.durationMs -= cut } else t.durationMs = cut
+        return done(`deleted the ${cmd.side} part of ${itemName(n, cmd.id)}`, [cmd.id])
+      }
+      const item = n[track][index] as VideoItem | AudioItem
+      const cut = at - item.startMs
+      if (cut < MIN_ITEM_MS || dur(item) - cut < MIN_ITEM_MS) fail('invalid', `playhead ${fmtTime(at)} is not inside ${cmd.id}`)
+      if (cmd.side === 'left') { item.inMs += cut; if (track === 'audio') item.startMs = at } else item.outMs = item.inMs + cut
+      if (track === 'video') ripple(n.video)
+      return done(`deleted the ${cmd.side} part of ${itemName(n, cmd.id)}`, [cmd.id])
+    }
+
+    case 'insertFreeze': {
+      const { track, index } = locate(n, cmd.id)
+      if (track !== 'video') fail('invalid', 'freeze frames come from video clips')
+      const still = findMedia(n, cmd.mediaId)
+      if (still.kind !== 'image') fail('invalid', `${still.name} is not a still image`)
+      if (cmd.durationMs < MIN_ITEM_MS) fail('invalid', 'freeze frame too short')
+      const v = n.video[index]
+      const cut = int(cmd.atMs) - v.startMs
+      let at = index + 1
+      if (cut >= MIN_ITEM_MS && dur(v) - cut >= MIN_ITEM_MS) {
+        const second: VideoItem = { ...structuredClone(v), id: ids('c'), inMs: v.inMs + cut }
+        v.outMs = v.inMs + cut
+        n.video.splice(index + 1, 0, second)
+      } else if (cut < MIN_ITEM_MS) at = index
+      const f: VideoItem = { id: ids('c'), mediaId: still.id, startMs: 0, inMs: 0, outMs: int(cmd.durationMs), volume: 1 }
+      if (v.transform) f.transform = structuredClone(v.transform)
+      n.video.splice(at, 0, f)
+      ripple(n.video)
+      return done(`added a ${fmtTime(dur(f))} freeze frame ${f.id} at ${fmtTime(f.startMs)}`, [f.id])
+    }
+
+    case 'replaceClip': {
+      const { track, index } = locate(n, cmd.id)
+      if (track === 'text') fail('invalid', 'text cannot be replaced with media')
+      const m = findMedia(n, cmd.mediaId)
+      const item = n[track][index] as VideoItem | AudioItem
+      if (track === 'video' && m.kind === 'audio') fail('invalid', `${m.name} has no picture`)
+      if (track === 'audio' && !m.hasAudio) fail('invalid', `${m.name} has no sound`)
+      const len = Math.min(dur(item), sourceLength(m))
+      Object.assign(item, { mediaId: m.id, inMs: 0, outMs: len })
+      if (track === 'video') ripple(n.video)
+      else assertAudioLanes(n.audio)
+      return done(`replaced ${cmd.id} with ${m.name}`, [cmd.id])
+    }
   }
 }
