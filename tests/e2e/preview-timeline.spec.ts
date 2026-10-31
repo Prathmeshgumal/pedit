@@ -122,3 +122,33 @@ test('files finishing their preview in the background do not interrupt playback'
   expect((await call(win, 'stats') as { seeks: number }).seeks).toBe(seeks0)
   await app.close()
 })
+
+test('when decoding falls behind, playback waits for the picture instead of running on and dropping frames', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'SLOW.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const ids = await mediaIds(win)
+  await pedit(win, 'edit', { type: 'addClip', mediaId: ids['h264_1080p30.mp4'] })
+  await expect(win.locator('[data-testid=preview-canvas]')).toHaveAttribute('data-loaded', 'true', { timeout: 10000 })
+  const r = await win.evaluate(() => new Promise<{ ratio: number; maxLead: number; presented: number }>((res) => {
+    const p = (window as unknown as { __peditPlayer: { decodeDelayMs: number; play(): void; pause(): void; debug(): { now: number; shownMs: number }; stats(): { presented: number; dropped: number } } }).__peditPlayer
+    p.decodeDelayMs = 70 // ~14 decoded frames a second for a 30fps clip
+    p.play()
+    let maxLead = 0
+    const iv = setInterval(() => {
+      const d = p.debug()
+      if (d.shownMs >= 0) maxLead = Math.max(maxLead, d.now - d.shownMs)
+    }, 20)
+    setTimeout(() => {
+      clearInterval(iv); p.pause()
+      const s = p.stats()
+      res({ ratio: s.presented / Math.max(1, s.presented + s.dropped), maxLead, presented: s.presented })
+    }, 3000)
+  }))
+  console.log('slow decode', r)
+  expect(r.presented).toBeGreaterThan(20)
+  expect(r.ratio).toBeGreaterThan(0.9)
+  expect(r.maxLead).toBeLessThan(400) // sound never runs far ahead of the picture
+  await app.close()
+})

@@ -15,7 +15,8 @@ export function PreviewPanel() {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const player = useRef<Player | null>(null)
-  const [loaded, setLoaded] = useState(false)
+  // which view is on the canvas: a clip key, 'timeline', or null; `loaded` only counts for the view we're showing now
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
   const [t, setT] = useState(0)
   const [dur, setDur] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -53,15 +54,15 @@ export function PreviewPanel() {
   // clip preview (double-clicked media tile)
   const clipReady = clip?.status === 'ready' && !!clip.proxyPath
   const clipKey = clip && clipReady ? `${clip.id}:${clip.proxyPath}` : null
+  const loaded = loadedFor !== null && loadedFor === (clipId ? clipKey : 'timeline')
   useEffect(() => {
     if (!clipId) return
-    setLoaded(false)
     if (!clipKey || !clip) return
     let alive = true
     void player.current!.loadClip(clip).then(() => {
       if (!alive) return
       const s = player.current!.sourceSize
-      setAspect(s.width / s.height); setDur(player.current!.durationMs); setLoaded(true)
+      setAspect(s.width / s.height); setDur(player.current!.durationMs); setLoadedFor(clipKey)
     }, (e) => console.error(e))
     return () => { alive = false }
   }, [clipId, clipKey])
@@ -72,7 +73,7 @@ export function PreviewPanel() {
     let alive = true
     void player.current!.setProject(view).then(() => {
       if (!alive) return
-      setAspect(view.settings.width / view.settings.height); setDur(player.current!.durationMs); setLoaded(true)
+      setAspect(view.settings.width / view.settings.height); setDur(player.current!.durationMs); setLoadedFor('timeline')
     }, (e) => console.error(e))
     return () => { alive = false }
   }, [view, clipId])

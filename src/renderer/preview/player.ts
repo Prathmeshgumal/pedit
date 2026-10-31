@@ -6,6 +6,8 @@ import { AudioOut } from './audio'
 
 const AHEAD_FRAMES = 12
 const AUDIO_AHEAD_MS = 1000
+/** Frames decoded ahead before the clock (re)starts. */
+const BUFFER_FRAMES = 4
 const MAX_SOURCES = 6
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -36,9 +38,16 @@ export class Player {
   private resumeAfterSeek = false
   /** What the timeline plays (segments, lanes, length, size); unchanged → no re-seek on a project update. */
   private playKey = ''
+  /** Tests only: extra wait per decoded frame, to simulate a busy decoder. */
+  decodeDelayMs = 0
+  /** Waiting for video frames: the clock is held still (at start, and whenever decoding falls behind). */
+  private buffering = false
+  private bufferSince = 0
+  /** Audio producers' generation: bumped whenever the clock restarts after buffering. */
+  private agen = 0
   private raf = 0
   private listeners = new Set<(ms: number) => void>()
-  private st = { presented: 0, dropped: 0, lastSeekMs: 0, seeks: 0 }
+  private st = { presented: 0, dropped: 0, lastSeekMs: 0, seeks: 0, stalls: 0 }
   private t = 0
   private video: Seg[] = []
   private lanes: Seg[][] = []
@@ -77,7 +86,7 @@ export class Player {
     this.video = [{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1, still }]
     this.lanes = src.hasAudio ? [[{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1 }]] : []
     this.durationMs = dur
-    this.st = { presented: 0, dropped: 0, lastSeekMs: 0, seeks: 0 }
+    this.st = { presented: 0, dropped: 0, lastSeekMs: 0, seeks: 0, stalls: 0 }
     await this.seek(0)
   }
 
@@ -117,12 +126,12 @@ export class Player {
     if (this.playing || this.durationMs <= 0) return
     if (this.t >= this.durationMs - 20) this.t = 0
     this.playing = true
-    this.audio.start(this.t)
     this.st.presented = 0
     this.st.dropped = 0
     const g = ++this.gen
     this.produceVideo(g, this.t)
-    for (const lane of this.lanes) this.produceAudio(g, lane, this.t)
+    // pre-roll: hold the clock until the first frames are decoded (onFrame starts it)
+    if (this.needsFrames(this.t)) { this.buffering = true; this.bufferSince = performance.now() } else this.startClock()
     const tick = (): void => {
       if (!this.playing) return
       this.onFrame()
@@ -135,6 +144,8 @@ export class Player {
     this.resumeAfterSeek = false
     if (!this.playing) return
     this.playing = false
+    this.buffering = false
+    this.agen++
     cancelAnimationFrame(this.raf)
     this.audio.stop()
     this.t = Math.min(this.durationMs, this.audio.nowMs())
@@ -147,7 +158,7 @@ export class Player {
 
   async seek(ms: number, resume = this.playing || this.resumeAfterSeek): Promise<void> {
     this.resumeAfterSeek = resume
-    if (this.playing) { this.playing = false; cancelAnimationFrame(this.raf); this.audio.stop() }
+    if (this.playing) { this.playing = false; this.buffering = false; this.agen++; cancelAnimationFrame(this.raf); this.audio.stop() }
     this.st.seeks++
     const g = ++this.gen
     this.flushQueue()
@@ -171,7 +182,7 @@ export class Player {
   }
 
   onTime(cb: (ms: number) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb) }
-  stats(): { presented: number; dropped: number; lastSeekMs: number; seeks: number; audioScheduled: number } { return { ...this.st, audioScheduled: this.audio.scheduled } }
+  stats(): { presented: number; dropped: number; lastSeekMs: number; seeks: number; stalls: number; audioScheduled: number } { return { ...this.st, audioScheduled: this.audio.scheduled } }
   debug(): Record<string, unknown> {
     return { ctx: this.audio.ctx.state, now: this.audio.nowMs(), q: this.queue.length, head: this.queue[0]?.ms, shownMs: this.shownMs, playing: this.playing, mode: this.mode }
   }
@@ -232,7 +243,29 @@ export class Player {
 
   private flushQueue(): void { for (const q of this.queue) q.frame.close(); this.queue = [] }
 
+  /** Is there decoded video to wait for at `ms` (not a gap, photo or audio-only stretch)? */
+  private needsFrames(ms: number): boolean {
+    const seg = this.segAt(ms)
+    return !!seg?.url && !seg.still
+  }
+
+  /** Start (or restart) the clock at this.t and the audio producers with it. */
+  private startClock(): void {
+    this.buffering = false
+    this.audio.start(this.t)
+    const ag = ++this.agen
+    for (const lane of this.lanes) this.produceAudio(ag, lane, this.t)
+  }
+
   private onFrame(): void {
+    if (this.buffering) {
+      // enough frames to play on (or the producer gave nothing for a while: don't hang)
+      const ready = this.queue.length >= BUFFER_FRAMES || (this.queue.length > 0 && performance.now() - this.bufferSince > 400) || performance.now() - this.bufferSince > 2000
+      if (!ready) return
+      // the clock resumes at the first waiting frame, so it is shown, not dropped
+      if (this.queue.length && this.queue[0].ms < this.t) this.t = this.queue[0].ms
+      this.startClock()
+    }
     const now = this.audio.nowMs()
     this.t = Math.min(now, this.durationMs)
     let pick: Queued | null = null
@@ -243,7 +276,15 @@ export class Player {
     const seg = this.segAt(this.t)
     if (pick) { this.show(pick.frame, pick.ms); this.st.presented++ }
     else if (!seg?.url) { if (this.shown) this.show(null, this.t); else this.redraw() }
-    else if (!seg.still && now > this.shownMs + 50 && this.queue.length === 0) this.st.dropped++
+    else if (!seg.still && this.queue.length === 0 && now > this.shownMs + 120 && this.shownMs >= seg.startMs - 1) {
+      // decoding fell behind: hold the clock where the picture is, instead of letting sound run ahead
+      this.audio.stop()
+      this.agen++
+      this.t = Math.max(seg.startMs, this.shownMs + 1)
+      this.buffering = true
+      this.bufferSince = performance.now()
+      this.st.stalls++
+    }
     else if (this.project?.text.length) this.redraw()
     this.emit()
     if (now >= this.durationMs) { this.pause(); this.t = this.durationMs; this.emit() }
@@ -265,6 +306,7 @@ export class Player {
           if (f.ms >= seg.outMs) { f.frame.close(); break }
           const tl = seg.startMs + (f.ms - seg.inMs)
           if (tl + f.durMs <= fromMs) { f.frame.close(); continue }
+          if (this.decodeDelayMs) await sleep(this.decodeDelayMs)
           this.queue.push({ frame: f.frame, ms: Math.max(tl, seg.startMs), durMs: f.durMs })
           while (this.queue.length >= AHEAD_FRAMES && g === this.gen) await sleep(4)
         }
@@ -274,20 +316,21 @@ export class Player {
   }
 
   private produceAudio(g: number, lane: Seg[], fromMs: number): void {
+    // g is the audio generation (agen)
     void (async () => {
       for (const seg of lane) {
         if (end(seg) <= fromMs || !seg.url) continue
         const src = await this.source(seg.url)
         const startSrc = seg.inMs + Math.max(0, fromMs - seg.startMs)
         for await (const a of src.audio(Math.max(0, startSrc - 50))) {
-          if (g !== this.gen) return
+          if (g !== this.agen) return
           if (a.startMs >= seg.outMs) break
           const tl = seg.startMs + (a.startMs - seg.inMs)
-          while (this.audio.aheadMs(tl) > AUDIO_AHEAD_MS && g === this.gen) await sleep(50)
-          if (g !== this.gen) return
+          while (this.audio.aheadMs(tl) > AUDIO_AHEAD_MS && g === this.agen) await sleep(50)
+          if (g !== this.agen) return
           this.audio.schedule(a.buffer, tl, seg.gain, Math.max(seg.startMs, fromMs), end(seg))
         }
-        if (g !== this.gen) return
+        if (g !== this.agen) return
       }
     })().catch((e) => console.error('audio producer', e))
   }
