@@ -1,6 +1,6 @@
-import { timelineDurationMs, type MediaItem, type Project, type TextItem } from '@shared/model'
+import { STILL_DEFAULT_MS, timelineDurationMs, type MediaItem, type Project, type TextItem } from '@shared/model'
 import { mediaUrl } from '@shared/mediaUrl'
-import { ClipSource } from './clipSource'
+import { openSource, type MediaSource } from './clipSource'
 import { Compositor, type Layer } from './compositor'
 import { AudioOut } from './audio'
 
@@ -10,7 +10,7 @@ const MAX_SOURCES = 6
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** A span of the output timeline backed by a range of one source file. */
-interface Seg { startMs: number; inMs: number; outMs: number; url: string | null; gain: number }
+interface Seg { startMs: number; inMs: number; outMs: number; url: string | null; gain: number; still?: boolean }
 type Queued = { frame: VideoFrame; ms: number; durMs: number }
 export type TextLayerFn = (texts: TextItem[], width: number, height: number) => Layer[]
 
@@ -26,7 +26,7 @@ const audioUrl = (m: MediaItem | undefined): string | null => {
 export class Player {
   private comp: Compositor
   private audio = new AudioOut()
-  private sources = new Map<string, Promise<ClipSource>>()
+  private sources = new Map<string, Promise<MediaSource>>()
   private gen = 0
   private queue: Queued[] = []
   private shown: VideoFrame | null = null
@@ -66,9 +66,10 @@ export class Player {
     const url = proxyUrl(media)
     if (!url) throw new Error('no proxy yet')
     const src = await this.source(url)
-    const dur = src.durationMs || media.durationMs
+    const still = media.kind === 'image'
+    const dur = still ? STILL_DEFAULT_MS : src.durationMs || media.durationMs
     this.size = { width: src.width || media.width || 16, height: src.height || media.height || 9 }
-    this.video = [{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1 }]
+    this.video = [{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1, still }]
     this.lanes = src.hasAudio ? [[{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1 }]] : []
     this.durationMs = dur
     this.st = { presented: 0, dropped: 0, lastSeekMs: 0 }
@@ -82,7 +83,7 @@ export class Player {
     this.project = p
     const media = new Map(p.media.map((m) => [m.id, m]))
     this.size = { width: p.settings.width, height: p.settings.height }
-    this.video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume }))
+    this.video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume, still: media.get(v.mediaId)?.kind === 'image' }))
     const clipAudio = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: audioUrl(media.get(v.mediaId)), gain: v.volume }))
     const music = p.audio.map((a) => ({ startMs: a.startMs, inMs: a.inMs, outMs: a.outMs, url: audioUrl(media.get(a.mediaId)), gain: a.volume }))
     this.lanes = [clipAudio.filter((s) => s.url), music.filter((s) => s.url)]
@@ -167,10 +168,10 @@ export class Player {
     return null
   }
 
-  private source(url: string): Promise<ClipSource> {
+  private source(url: string): Promise<MediaSource> {
     let p = this.sources.get(url)
     if (p) { this.sources.delete(url); this.sources.set(url, p); return p } // LRU touch
-    p = ClipSource.open(url)
+    p = openSource(url)
     p.catch(() => this.sources.delete(url))
     this.sources.set(url, p)
     if (this.sources.size > MAX_SOURCES) {
@@ -218,7 +219,7 @@ export class Player {
     const seg = this.segAt(this.t)
     if (pick) { this.show(pick.frame, pick.ms); this.st.presented++ }
     else if (!seg?.url) { if (this.shown) this.show(null, this.t); else this.redraw() }
-    else if (now > this.shownMs + 50 && this.queue.length === 0) this.st.dropped++
+    else if (!seg.still && now > this.shownMs + 50 && this.queue.length === 0) this.st.dropped++
     else if (this.project?.text.length) this.redraw()
     this.emit()
     if (now >= this.durationMs) { this.pause(); this.t = this.durationMs; this.emit() }

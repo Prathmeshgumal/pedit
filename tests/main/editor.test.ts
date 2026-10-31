@@ -39,4 +39,22 @@ describe('Editor.relink', () => {
     expect(ed.state()!.real.media[0]).toMatchObject({ status: 'error' })
     await ed.flush()
   }, 60000)
+
+  it('re-reads failed items when a project opens, so photos once taken for videos become photos', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'pedit-ed-'))
+    const dir = join(base, 'P.pedit')
+    const first = new Editor(quiet)
+    await first.newProject(dir, 'P')
+    await first.importPaths([f('photos/landscape.jpg')])
+    const id = first.state()!.real.media[0].id
+    // what an older pedit saved for a photo
+    first.apply({ type: 'updateMedia', id, patch: { kind: 'video', durationMs: 40, fps: 25, status: 'error', error: 'thumb failed' } })
+    await first.flush()
+
+    const ed = new Editor(quiet)
+    await ed.openProject(dir)
+    await expect.poll(() => ed.state()!.real.media[0].status, { timeout: 20000 }).toBe('ready')
+    expect(ed.state()!.real.media[0]).toMatchObject({ kind: 'image', durationMs: 0 })
+    await ed.flush()
+  }, 60000)
 })

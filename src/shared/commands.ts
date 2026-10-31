@@ -1,4 +1,4 @@
-import { ASPECT_SIZE, DEFAULT_TEXT_STYLE, MIN_ITEM_MS, type Aspect, type AudioItem, type ItemId, type MediaId, type MediaItem,
+import { ASPECT_SIZE, DEFAULT_TEXT_STYLE, MIN_ITEM_MS, STILL_DEFAULT_MS, STILL_MAX_MS, type Aspect, type AudioItem, type ItemId, type MediaId, type MediaItem,
   type Project, type TextItem, type TextStyle, type VideoItem } from './model'
 import type { IdGen } from './ids'
 import { fmtTime } from './time'
@@ -89,9 +89,13 @@ function assertNoOverlap(items: Array<{ id: ItemId; startMs: number; end: number
 const textSpans = (t: TextItem[]): Array<{ id: ItemId; startMs: number; end: number }> => t.map((x) => ({ id: x.id, startMs: x.startMs, end: x.startMs + x.durationMs }))
 const audioSpans = (a: AudioItem[]): Array<{ id: ItemId; startMs: number; end: number }> => a.map((x) => ({ id: x.id, startMs: x.startMs, end: x.startMs + dur(x) }))
 
+/** How far into a file an item can reach: a photo has no end of its own. */
+const sourceLength = (m: MediaItem): number => (m.kind === 'image' ? STILL_MAX_MS : m.durationMs)
+
 function clampTrim(item: { inMs: number; outMs: number }, media: MediaItem, inMs?: number, outMs?: number): { inMs: number; outMs: number } {
-  const i = int(Math.max(0, Math.min(inMs ?? item.inMs, media.durationMs)))
-  const o = int(Math.max(0, Math.min(outMs ?? item.outMs, media.durationMs)))
+  const len = sourceLength(media)
+  const i = int(Math.max(0, Math.min(inMs ?? item.inMs, len)))
+  const o = int(Math.max(0, Math.min(outMs ?? item.outMs, len)))
   if (o - i < MIN_ITEM_MS) fail('invalid', `resulting length ${o - i}ms is shorter than ${MIN_ITEM_MS}ms`)
   return { inMs: i, outMs: o }
 }
@@ -123,7 +127,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
     case 'addClip': {
       const m = findMedia(n, cmd.mediaId)
       if (m.kind === 'audio') fail('invalid', `${m.name} has no video; use setMusic for audio`)
-      const span = clampTrim({ inMs: 0, outMs: m.durationMs }, m, cmd.inMs, cmd.outMs)
+      const span = clampTrim({ inMs: 0, outMs: m.kind === 'image' ? STILL_DEFAULT_MS : m.durationMs }, m, cmd.inMs, cmd.outMs)
       const item: VideoItem = { id: ids('c'), mediaId: m.id, startMs: 0, ...span, volume: 1 }
       n.video.splice(insertIndex(n.video, cmd.after, cmd.atMs), 0, item)
       ripple(n.video)

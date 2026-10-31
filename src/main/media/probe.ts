@@ -13,11 +13,22 @@ interface FFStream {
   color_transfer?: string; duration?: string; tags?: Record<string, string>
   side_data_list?: Array<{ rotation?: number }>; disposition?: { attached_pic?: number }
 }
-interface FFProbe { streams: FFStream[]; format: { duration?: string; tags?: Record<string, string> } }
+interface FFProbe { streams: FFStream[]; format: { duration?: string; format_name?: string; tags?: Record<string, string> } }
 
 export type ProbeResult = Omit<MediaItem, 'id' | 'importIndex' | 'status' | 'folder'>
 
 const IMAGE_CODECS = new Set(['mjpeg', 'png', 'webp', 'bmp', 'tiff', 'gif'])
+/** Still-image demuxers (image2 for jpg, png_pipe, webp_pipe, ...). */
+const isImageFormat = (name?: string): boolean => !!name && name.split(',').some((n) => n === 'image2' || n.endsWith('_pipe'))
+
+/** Photos keep their rotation in EXIF, which ffprobe only shows on the decoded frame. */
+async function photoRotation(path: string): Promise<number> {
+  try {
+    const { stdout } = await execFileP(ffprobePath(), ['-v', 'error', '-print_format', 'json', '-show_frames', '-read_intervals', '%+#1', '-select_streams', 'v:0', path], { maxBuffer: 16 * 1024 * 1024 })
+    const fr = (JSON.parse(stdout) as { frames?: Array<{ side_data_list?: Array<{ rotation?: number }> }> }).frames?.[0]
+    return fr?.side_data_list?.find((s) => typeof s.rotation === 'number')?.rotation ?? 0
+  } catch { return 0 }
+}
 
 function rate(s?: string): number {
   if (!s) return 0
@@ -63,13 +74,16 @@ export async function probe(path: string): Promise<ProbeResult> {
   const v = p.streams.find((s) => s.codec_type === 'video' && !s.disposition?.attached_pic)
   const a = p.streams.find((s) => s.codec_type === 'audio')
   if (!v && !a) throw new Error(`no audio or video stream: ${basename(path)}`)
-  const kind: MediaItem['kind'] = v ? (IMAGE_CODECS.has(v.codec_name ?? '') && !p.format.duration ? 'image' : 'video') : 'audio'
-  const rotRaw = v?.side_data_list?.find((s) => typeof s.rotation === 'number')?.rotation ?? 0
-  const rotation = ((((Math.round(rotRaw / 90) * 90) % 360) + 360) % 360) as MediaItem['rotation']
+  const still = !!v && IMAGE_CODECS.has(v.codec_name ?? '') && (isImageFormat(p.format.format_name) || !p.format.duration)
+  const kind: MediaItem['kind'] = v ? (still ? 'image' : 'video') : 'audio'
+  const rotRaw = still ? await photoRotation(path) : v?.side_data_list?.find((s) => typeof s.rotation === 'number')?.rotation ?? 0
+  const quarter = ((((Math.round(rotRaw / 90) * 90) % 360) + 360) % 360) as MediaItem['rotation']
   let width = v?.width ?? 0
   let height = v?.height ?? 0
-  if (rotation === 90 || rotation === 270) [width, height] = [height, width]
-  const dur = Number(p.format.duration ?? v?.duration ?? a?.duration ?? 0)
+  if (quarter === 90 || quarter === 270) [width, height] = [height, width]
+  // ffmpeg turns photos upright as it decodes them, so a photo's size is already upright and needs no rotation
+  const rotation = still ? 0 : quarter
+  const dur = still ? 0 : Number(p.format.duration ?? v?.duration ?? a?.duration ?? 0)
   return {
     path,
     name: basename(path),
@@ -77,7 +91,7 @@ export async function probe(path: string): Promise<ProbeResult> {
     createdAt: createdAt(p, v, st.mtime),
     durationMs: Math.round(dur * 1000),
     width, height,
-    fps: v ? rate(v.avg_frame_rate) || rate(v.r_frame_rate) : 0,
+    fps: v && !still ? rate(v.avg_frame_rate) || rate(v.r_frame_rate) : 0,
     codec: (v ?? a)!.codec_name ?? 'unknown',
     bitDepth: v ? bitDepth(v) : 0,
     colorTransfer: transfer(v?.color_transfer),

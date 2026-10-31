@@ -81,6 +81,22 @@ describe('MediaPipeline', () => {
     expect(item.status).toBe('ready')
   })
 
+  it('prepares a photo: thumbnail and an upright preview image', async () => {
+    const cache = mkdtempSync(join(tmpdir(), 'pedit-cache-'))
+    const { item, stages } = await runPipeline(cache, enc, await media('photos/rotated_exif6.jpg'))
+    expect(stages).toEqual(['thumb', 'proxy'])
+    expect(item.proxyPath!.endsWith('.jpg')).toBe(true)
+    expect(await probe(item.proxyPath!)).toMatchObject({ kind: 'image', width: 200, height: 400 })
+  })
+
+  it('prepares a very short clip (a quarter second)', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'pedit-short-'))
+    const clip = join(d, 'short.mp4')
+    execFileSync(ffmpegPathForTest(), ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=s=320x240:r=30', '-t', '0.25', '-c:v', 'libx264', '-g', '250', clip])
+    const { item } = await runPipeline(mkdtempSync(join(tmpdir(), 'pedit-cache-')), enc, { ...(await probe(clip)), id: 'm_1', folder: '', importIndex: 0, status: 'processing' })
+    expect(existsSync(item.filmstripPath!)).toBe(true)
+  })
+
   it('reuses cached outputs on a second run', async () => {
     const cache = mkdtempSync(join(tmpdir(), 'pedit-cache-'))
     const m = await media('day1/h264_1080p30.mp4')
@@ -94,23 +110,23 @@ describe('MediaPipeline', () => {
 })
 
 describe('importPaths', () => {
-  it('skips still images (not supported on the timeline in v0.1)', async () => {
+  it('imports photos from folders and as single files', async () => {
     const d = mkdtempSync(join(tmpdir(), 'pedit-img-'))
     execFileSync(ffmpegPathForTest(), ['-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=64x64', '-frames:v', '1', join(d, 'photo.jpg')])
-    expect(await importPaths([d], [], seqIds())).toEqual([])
-    expect(await importPaths([join(d, 'photo.jpg')], [], seqIds())).toEqual([])
+    expect((await importPaths([d], [], seqIds())).map((m) => [m.name, m.kind])).toEqual([['photo.jpg', 'image']])
+    expect(await importPaths([f('photos/square.png')], [], seqIds())).toHaveLength(1)
   })
   it('expands folders, probes media and records folder names', async () => {
     const items = await importPaths([FIX], [], seqIds())
-    expect(items).toHaveLength(6)
-    expect(new Set(items.map((i) => i.folder))).toEqual(new Set(['day1', 'day2', 'music', 'bench']))
-    expect(items.map((i) => i.importIndex)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(items).toHaveLength(9)
+    expect(new Set(items.map((i) => i.folder))).toEqual(new Set(['day1', 'day2', 'music', 'bench', 'photos']))
+    expect(items.map((i) => i.importIndex)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
     expect(items.every((i) => i.status === 'processing')).toBe(true)
   })
   it('skips already-imported paths and continues importIndex', async () => {
     const first = await importPaths([f('day1')], [], seqIds())
     const again = await importPaths([FIX], first, seqIds())
-    expect(again).toHaveLength(3)
+    expect(again).toHaveLength(6) // everything except the 3 day1 clips
     expect(again[0].importIndex).toBe(3)
   })
 })

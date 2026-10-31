@@ -8,6 +8,7 @@ const STAGE_LABEL = { thumb: 'thumbnail', filmstrip: 'filmstrip', waveform: 'wav
 
 function badge(m: MediaItem): string {
   if (m.kind === 'audio') return 'audio'
+  if (m.kind === 'image') return 'photo'
   const res = Math.min(m.width, m.height) >= 2160 ? '4K' : Math.min(m.width, m.height) >= 1080 ? '1080p' : `${Math.min(m.width, m.height)}p`
   return `${res} ${Math.round(m.fps)}${m.colorTransfer !== 'sdr' ? ' HDR' : ''}`
 }
@@ -29,7 +30,7 @@ function Tile({ m }: { m: MediaItem }) {
         {m.thumbPath ? <img src={mediaUrl(m.thumbPath)} className="h-full w-full object-cover" draggable={false} />
           : <div className="flex h-full items-center justify-center text-2xl text-neutral-600">{m.kind === 'audio' ? '♪' : '▶'}</div>}
         <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px]">{badge(m)}</span>
-        <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px]">{fmtDur(m.durationMs)}</span>
+        {m.kind !== 'image' && <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px]">{fmtDur(m.durationMs)}</span>}
         {m.status === 'offline' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/75 text-[11px] text-red-300">
             Offline

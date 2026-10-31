@@ -14,7 +14,7 @@ test('imports a folder instantly, builds proxies in background, stays responsive
 
   const t0 = Date.now()
   await win.evaluate((p) => (window as unknown as { pedit: { importPaths(p: string[]): Promise<void> } }).pedit.importPaths([p]), FIX)
-  await expect(win.locator('[data-testid=media-tile]')).toHaveCount(6, { timeout: 2000 })
+  await expect(win.locator('[data-testid=media-tile]')).toHaveCount(9, { timeout: 2000 })
   expect(Date.now() - t0).toBeLessThan(2500)
 
   // responsive while proxies build
@@ -25,12 +25,12 @@ test('imports a folder instantly, builds proxies in background, stays responsive
   expect(Date.now() - c0).toBeLessThan(400)
 
   await expect(win.locator('[data-testid=media-progress]')).toHaveCount(0, { timeout: 180000 })
-  await expect(win.locator('[data-testid=media-tile][data-status=ready]')).toHaveCount(6)
+  await expect(win.locator('[data-testid=media-tile][data-status=ready]')).toHaveCount(9)
   await app.close()
 
   app = await launch({ PEDIT_PROJECT_DIR: projectDir })
   win = await app.firstWindow()
-  await expect(win.locator('[data-testid=media-tile]')).toHaveCount(6, { timeout: 5000 })
-  await expect(win.locator('[data-testid=media-tile][data-status=ready]')).toHaveCount(6, { timeout: 5000 })
+  await expect(win.locator('[data-testid=media-tile]')).toHaveCount(9, { timeout: 5000 })
+  await expect(win.locator('[data-testid=media-tile][data-status=ready]')).toHaveCount(9, { timeout: 5000 })
   await app.close()
 })

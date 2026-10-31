@@ -40,4 +40,9 @@ describe('summaries', () => {
       'm_2 b.mov · folder day1 · 2026-03-01 11:00 · 0:05.0 · 1920x1080 30fps · no audio\n' +
       'm_3 gone.mov · folder day1 · 2026-03-02 09:30 · 0:05.0 · 1920x1080 30fps · audio · OFFLINE')
   })
+
+  it('lists photos without a length', () => {
+    const p = projectWith([media('m_p', { name: 'IMG_1.jpg', kind: 'image', width: 3024, height: 4032, durationMs: 0, fps: 0, hasAudio: false })])
+    expect(mediaSummary(p)).toBe('m_p IMG_1.jpg · folder day1 · 2026-03-01 10:00 · photo · 3024x4032')
+  })
 })

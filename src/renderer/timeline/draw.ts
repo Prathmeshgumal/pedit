@@ -116,8 +116,12 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
     if (it.track === 'video') {
       const v = p.video.find((i) => i.id === it.id)!
       const m = media.get(v.mediaId)
+      const still = m?.kind === 'image' && m.thumbPath ? image(m.thumbPath, redraw) : null
       const img = m?.filmstripPath ? image(m.filmstripPath, redraw) : null
-      if (img && m) {
+      if (still) {
+        const tw = (h / still.naturalHeight) * still.naturalWidth
+        for (let tx = x; tx < x + iw; tx += tw) ctx.drawImage(still, tx, y, tw, h)
+      } else if (img && m) {
         const frames = Math.min(MAX_FILMSTRIP_FRAMES, Math.ceil(Math.max(1, m.durationMs / 1000)))
         const fw = img.naturalWidth / frames
         const tw = (h / img.naturalHeight) * fw

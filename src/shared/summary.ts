@@ -20,8 +20,9 @@ export function mediaSummary(p: Project): string {
   if (!list.length) return '(no media imported)'
   return list.map((m) => {
     const when = `${m.createdAt.slice(0, 10)} ${m.createdAt.slice(11, 16)}`
-    const parts = [`${m.id} ${m.name}`, `folder ${m.folder || '-'}`, when, fmtTime(m.durationMs)]
+    const parts = [`${m.id} ${m.name}`, `folder ${m.folder || '-'}`, when, m.kind === 'image' ? 'photo' : fmtTime(m.durationMs)]
     if (m.kind === 'audio') parts.push('audio only')
+    else if (m.kind === 'image') parts.push(`${m.width}x${m.height}`)
     else parts.push(`${m.width}x${m.height} ${Math.round(m.fps)}fps`, m.hasAudio ? 'audio' : 'no audio')
     if (m.status === 'offline') parts.push('OFFLINE')
     return parts.join(' · ')

@@ -6,7 +6,7 @@ import type { MediaId, MediaItem } from '../../shared/model'
 import type { IdGen } from '../../shared/ids'
 import { runFfmpeg, type EncoderInfo } from './ffmpeg'
 import { proxyArgs } from './proxy'
-import { filmstripArgs, thumbArgs } from './thumbs'
+import { filmstripArgs, stillArgs, thumbArgs } from './thumbs'
 import { buildWaveform } from './waveform'
 import { probe } from './probe'
 
@@ -26,7 +26,7 @@ async function cacheKey(path: string): Promise<string> {
 
 function stagesFor(m: MediaItem): Stage[] {
   if (m.kind === 'audio') return ['waveform']
-  if (m.kind === 'image') return ['thumb']
+  if (m.kind === 'image') return ['thumb', 'proxy'] // proxy = upright preview jpg
   // filmstrip is cut from the proxy: small frames with a keyframe every 0.5s make it fast
   return m.hasAudio ? ['thumb', 'waveform', 'proxy', 'filmstrip'] : ['thumb', 'proxy', 'filmstrip']
 }
@@ -100,15 +100,17 @@ export class MediaPipeline {
 
   private async produce(m: MediaItem, stage: Stage, proxyFor?: string): Promise<string> {
     await mkdir(this.cacheDir, { recursive: true })
-    const out = join(this.cacheDir, `${await cacheKey(m.path)}.${stage}.${EXT[stage]}`)
+    const ext = stage === 'proxy' && m.kind === 'image' ? 'jpg' : EXT[stage]
+    const out = join(this.cacheDir, `${await cacheKey(m.path)}.${stage}.${ext}`)
     if (existsSync(out)) return out
-    const tmp = `${out}.tmp.${EXT[stage]}`
+    const tmp = `${out}.tmp.${ext}`
     const signal = this.ac.signal
     const pct = (ms: number): void => this.onProgress(m.id, stage, Math.min(99, Math.round((ms / Math.max(1, m.durationMs)) * 100)))
     try {
       if (stage === 'thumb') await runFfmpeg(thumbArgs(m, tmp), { signal })
       else if (stage === 'filmstrip') await runFfmpeg(filmstripArgs({ ...m, path: proxyFor ?? m.path, colorTransfer: proxyFor ? 'sdr' : m.colorTransfer }, tmp), { signal })
       else if (stage === 'waveform') await buildWaveform(m.path, tmp, signal)
+      else if (m.kind === 'image') await runFfmpeg(stillArgs(m, tmp), { signal })
       else {
         try {
           await runFfmpeg(proxyArgs(m, tmp, this.enc), { signal, onProgress: pct })
@@ -126,7 +128,8 @@ export class MediaPipeline {
 }
 
 const MEDIA_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mts', '.m2ts', '.3gp', '.insv',
-  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus'])  // still images: not placeable on the timeline in v0.1
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus',
+  '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.avif'])
 
 async function walk(dir: string, out: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true })
@@ -170,7 +173,7 @@ export async function importPaths(paths: string[], existingMedia: MediaItem[], i
   })
   const items: MediaItem[] = []
   for (const r of probed) {
-    if (!r || r.info.kind === 'image') continue
+    if (!r) continue
     items.push({ ...r.info, id: ids('m'), folder: r.x.folder, importIndex: next++, status: 'processing' })
   }
   return items

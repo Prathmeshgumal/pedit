@@ -23,6 +23,15 @@ describe('probe', () => {
     expect([m.width, m.height, m.rotation]).toEqual([1080, 1920, 90])
   })
 
+  it('treats jpg and png photos as images with no length', async () => {
+    expect(await probe(f('photos/landscape.jpg'))).toMatchObject({ kind: 'image', width: 400, height: 200, durationMs: 0, fps: 0, hasAudio: false, rotation: 0 })
+    expect(await probe(f('photos/square.png'))).toMatchObject({ kind: 'image', width: 300, height: 300 })
+  })
+
+  it('reports upright size for a phone photo with a rotation flag', async () => {
+    expect(await probe(f('photos/rotated_exif6.jpg'))).toMatchObject({ kind: 'image', width: 200, height: 400 })
+  })
+
   it('treats mp3 as audio', async () => {
     const m = await probe(f('music/track_02.mp3'))
     expect(m.kind).toBe('audio')

@@ -80,7 +80,11 @@ export class Editor {
       (id, patch) => { if (this.session === session) session.apply({ type: 'updateMedia', id, patch }, 'user') },
       (id, stage, pct) => this.out.progress(id, stage, pct))
     this.out.state(session.state())
-    for (const m of session.state().real.media) if (needsWork(m)) this.pipeline.enqueue(m)
+    for (const m of session.state().real.media) {
+      // failed items are read again first: an older pedit may have mis-read them (e.g. photos taken for videos)
+      if (m.status === 'error') void this.relink(m.id, m.path).catch(() => {})
+      else if (needsWork(m)) this.pipeline.enqueue(m)
+    }
   }
 
   private scheduleSave(): void {

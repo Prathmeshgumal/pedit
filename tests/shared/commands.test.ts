@@ -123,6 +123,23 @@ describe('text and music tracks', () => {
   })
 })
 
+describe('photos', () => {
+  const withPhoto = () => { const s = setup(); s.p.media.push(media('m_photo', { kind: 'image', durationMs: 0, fps: 0, hasAudio: false })); return s }
+  it('a photo becomes a 5 second clip, or as long as asked', () => {
+    const s = withPhoto()
+    s.run({ type: 'addClip', mediaId: 'm_photo' })
+    s.run({ type: 'addClip', mediaId: 'm_photo', inMs: 0, outMs: 12000 })
+    expect(s.p.video.map((v) => v.outMs - v.inMs)).toEqual([5000, 12000])
+  })
+  it('a photo clip can be stretched to any length and split', () => {
+    const s = withPhoto()
+    s.run({ type: 'addClip', mediaId: 'm_photo' })
+    s.run({ type: 'trimItem', id: 'c_000001', outMs: 60000 })
+    s.run({ type: 'splitItem', id: 'c_000001', atMs: 20000 })
+    expect(s.p.video.map((v) => v.outMs - v.inMs)).toEqual([20000, 40000])
+  })
+})
+
 describe('ids', () => {
   it('never reuses an id that is already on the timeline', () => {
     const s = setup()

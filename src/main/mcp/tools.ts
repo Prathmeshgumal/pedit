@@ -54,7 +54,7 @@ export function registerTools(server: McpServer, getSession: () => EditSession |
   read('get_project_settings', 'Output format, size, frame rate, timeline duration and revision.',
     (s) => { const st = s.state(); const p = st.view; return JSON.stringify({ ...p.settings, durationMs: timelineDurationMs(p), revision: st.viewRevision, draft: st.draftActive }) })
 
-  edit('add_clip', 'Add a video clip from media. Video track is ripple (no gaps). Place with `after` (item id, or null for the start) or `atMs` (snaps to the nearest clip boundary); default appends at the end. inMs/outMs pick the part of the source.',
+  edit('add_clip', 'Add a video clip from media. Video track is ripple (no gaps). Place with `after` (item id, or null for the start) or `atMs` (snaps to the nearest clip boundary); default appends at the end. inMs/outMs pick the part of the source. Photos ("photo" in list_media) default to 5000ms; pass inMs 0 and outMs = the length you want.',
     { mediaId: z.string(), inMs: ms('Source in point').optional(), outMs: ms('Source out point').optional(), after: z.string().nullable().optional(), atMs: ms('Timeline position').optional() },
     (a) => ({ type: 'addClip', ...a }))
   edit('remove_item', 'Remove a clip, text or music item. Removing a video clip closes the gap.', { id }, (a) => ({ type: 'removeItem', id: a.id }))

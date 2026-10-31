@@ -56,3 +56,35 @@ export class ClipSource {
 
   close(): void { this.input.dispose() }
 }
+
+/** A photo's preview jpg, shown as the same frame for as long as its clip lasts. */
+export class StillSource {
+  readonly durationMs = 0
+  readonly hasAudio = false
+  private constructor(private bmp: ImageBitmap) {}
+
+  static async open(url: string): Promise<StillSource> {
+    const r = await fetch(url)
+    if (!r.ok) throw new Error(`could not load ${url}`)
+    return new StillSource(await createImageBitmap(await r.blob()))
+  }
+
+  get width(): number { return this.bmp.width }
+  get height(): number { return this.bmp.height }
+
+  private frame(ms: number): VideoFrame { return new VideoFrame(this.bmp, { timestamp: Math.round(ms * 1000) }) }
+
+  async frameAt(sourceMs: number): Promise<{ frame: VideoFrame; ms: number }> { return { frame: this.frame(sourceMs), ms: sourceMs } }
+
+  /** One frame that stays on screen until the clip ends. */
+  async *frames(fromMs: number): AsyncGenerator<{ frame: VideoFrame; ms: number; durMs: number }> {
+    yield { frame: this.frame(fromMs), ms: fromMs, durMs: 0 }
+  }
+
+  async *audio(_fromMs: number): AsyncGenerator<{ buffer: AudioBuffer; startMs: number }> {}
+
+  close(): void { this.bmp.close() }
+}
+
+export type MediaSource = ClipSource | StillSource
+export const openSource = (url: string): Promise<MediaSource> => (/\.(jpe?g|png|webp)$/i.test(url) ? StillSource.open(url) : ClipSource.open(url))

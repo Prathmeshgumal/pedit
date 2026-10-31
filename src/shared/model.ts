@@ -64,6 +64,9 @@ export const ASPECT_SIZE: Record<Aspect, { width: number; height: number }> = {
 }
 
 export const MIN_ITEM_MS = 100
+/** A photo dropped on the timeline lasts this long (CapCut's default) and can be stretched up to STILL_MAX_MS. */
+export const STILL_DEFAULT_MS = 5000
+export const STILL_MAX_MS = 3_600_000
 
 export function emptyProject(name: string): Project {
   return {
