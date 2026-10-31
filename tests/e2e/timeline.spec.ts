@@ -65,3 +65,28 @@ test('drag clips in, trim with the edge, split with S, undo with Ctrl+Z', async 
   await expect(win.locator('[data-testid=undo]')).toBeEnabled()
   await app.close()
 })
+
+test('text moves along the timeline when dragged', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'TX.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const st0 = await pedit<{ real: { media: Array<{ id: string }> } }>(win, 'getState')
+  await pedit(win, 'edit', { type: 'addClip', mediaId: st0.real.media[0].id })
+  await win.locator('text=text').first().click()
+  await win.locator('[data-testid=add-text]').click()
+  await expect.poll(async () => (await items(win)).filter((i) => i.track === 'text').length).toBe(1)
+  await win.waitForTimeout(200)
+  const t = (await items(win)).find((i) => i.track === 'text')!
+  const mid = (t.left + t.right) / 2
+  await win.mouse.move(mid, t.cy)
+  await win.mouse.down()
+  await win.mouse.move(mid + 40, t.cy, { steps: 4 })
+  await win.mouse.move(mid + 80, t.cy, { steps: 4 })
+  await win.mouse.up()
+  const text = async (): Promise<{ startMs: number; style: { position: string; x?: number; y?: number } }> =>
+    (await pedit<{ view: { text: Array<{ startMs: number; style: { position: string; x?: number; y?: number } }> } }>(win, 'getState')).view.text[0]
+  const pxPerMs = (t.right - t.left) / (t.endMs - t.startMs)
+  await expect.poll(async () => (await text()).startMs).toBeGreaterThan(t.startMs + 70 / pxPerMs)
+  await app.close()
+})
