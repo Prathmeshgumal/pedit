@@ -110,6 +110,20 @@ describe('runExport', () => {
     expect(d / (got.length / 53)).toBeLessThan(6)
   }, 120000)
 
+  it('a photo rotated 90 degrees exports with its left edge on top', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const p = emptyProject('rot')
+    p.media = [await media('photos/landscape.jpg', 'm1')]
+    p.video = [{ id: 'c1', mediaId: 'm1', startMs: 0, inMs: 0, outMs: 1000, volume: 1, transform: { rotate: 90, flipH: false, flipV: false, crop: { x: 0, y: 0, w: 1, h: 1 } } }]
+    const out = join(dir, 'rot.mp4')
+    await runExport(p, { aspect: '9:16', resolution: 1080, fps: 30, quality: 'standard', outPath: out },
+      { renderTextPngs: async () => ({}), enc, onProgress: () => {}, signal: new AbortController().signal })
+    const rgb = (y: number): Buffer => execFileSync(ffmpegPath(), ['-v', 'error', '-ss', '0.5', '-i', out, '-frames:v', '1', '-vf', `crop=8:8:536:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
+    // landscape.jpg has a red strip on its left quarter; turned clockwise, the left side moves to the top
+    expect(rgb(100)[0]).toBeGreaterThan(180)
+    expect(rgb(1700)[2]).toBeGreaterThan(150)
+  }, 60000)
+
   it('falls back to libx264 when the hardware encoder fails', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
     const p = await reel(); p.video = [p.video[1]]; p.video[0].startMs = 0; p.text = []; p.audio = []

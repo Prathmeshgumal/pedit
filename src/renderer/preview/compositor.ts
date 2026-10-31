@@ -1,18 +1,21 @@
-import { coverRect } from './fit'
+import { IDENTITY_TRANSFORM, type ClipTransform } from '@shared/model'
+import { uvMatrix } from '@shared/transform'
 export { coverRect } from './fit'
 
-export type Layer = { frame: VideoFrame | ImageBitmap | OffscreenCanvas | HTMLCanvasElement; fit: 'cover' | 'full' }
+export type Layer = { frame: VideoFrame | ImageBitmap | OffscreenCanvas | HTMLCanvasElement; fit: 'cover' | 'full'; transform?: ClipTransform }
 
+const FULL = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+// q is the quad position in [0,1]² with y down; m maps it to the source texture (crop, rotate, flip, cover)
 const VS = `#version 300 es
-in vec2 p; uniform vec4 uv; out vec2 t;
-void main(){ t = vec2(uv.x + (p.x*.5+.5)*uv.z, uv.y + (.5-p.y*.5)*uv.w); gl_Position = vec4(p,0.,1.); }`
+in vec2 p; uniform mat3 m; out vec2 t;
+void main(){ vec2 q = vec2(p.x*.5+.5, .5-p.y*.5); t = (m * vec3(q, 1.)).xy; gl_Position = vec4(p,0.,1.); }`
 const FS = `#version 300 es
 precision mediump float; in vec2 t; uniform sampler2D s; out vec4 o; void main(){ o = texture(s, t); }`
 
 /** WebGL2 compositor: draws layers bottom-to-top, video with center-crop cover fit. */
 export class Compositor {
   private gl: WebGL2RenderingContext
-  private uv: WebGLUniformLocation
+  private m: WebGLUniformLocation
   private textures: WebGLTexture[] = []
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -32,7 +35,7 @@ export class Compositor {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW)
     const loc = gl.getAttribLocation(prog, 'p')
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
-    this.uv = gl.getUniformLocation(prog, 'uv')!
+    this.m = gl.getUniformLocation(prog, 'm')!
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
   }
@@ -66,10 +69,7 @@ export class Compositor {
       if (!w || !h) return
       gl.bindTexture(gl.TEXTURE_2D, this.texture(i))
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src as TexImageSource)
-      if (l.fit === 'cover') {
-        const r = coverRect(w, h, this.canvas.width, this.canvas.height)
-        gl.uniform4f(this.uv, r.sx / w, r.sy / h, r.sw / w, r.sh / h)
-      } else gl.uniform4f(this.uv, 0, 0, 1, 1)
+      gl.uniformMatrix3fv(this.m, false, l.fit === 'cover' ? uvMatrix(w, h, l.transform ?? IDENTITY_TRANSFORM, this.canvas.width, this.canvas.height) : FULL)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     })
   }

@@ -54,3 +54,25 @@ test('photos import, sit on the timeline for 5s, show upright in preview and exp
   expect(px[0]).toBeGreaterThan(180) // red at the top in the export too
   await app.close()
 })
+
+test('rotating and mirroring a clip shows in the preview the same way as in export', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'RT.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'photos', 'landscape.jpg')])
+  await waitReady(win, 1)
+  const ids = await mediaIds(win)
+  await pedit(win, 'edit', { type: 'setFormat', aspect: '9:16' })
+  await pedit(win, 'edit', { type: 'addClip', mediaId: ids['landscape.jpg'] })
+  const id = (await pedit<{ view: { video: Array<{ id: string }> } }>(win, 'getState')).view.video[0].id
+  await call(win, 'seek', 1000)
+  // unrotated in 9:16 the red left quarter is cropped away
+  await expect.poll(async () => (await canvasRgb(win, 0.5, 0.08))[2], { timeout: 10000 }).toBeGreaterThan(150)
+  await pedit(win, 'edit', { type: 'setTransform', id, transform: { rotate: 90 } })
+  await call(win, 'seek', 1000)
+  await expect.poll(async () => (await canvasRgb(win, 0.5, 0.08))[0], { timeout: 10000 }).toBeGreaterThan(180)
+  // flipped vertically the red side goes to the bottom
+  await pedit(win, 'edit', { type: 'setTransform', id, transform: { flipV: true } })
+  await call(win, 'seek', 1000)
+  await expect.poll(async () => (await canvasRgb(win, 0.5, 0.92))[0], { timeout: 10000 }).toBeGreaterThan(180)
+  await app.close()
+})

@@ -1,4 +1,4 @@
-import { STILL_DEFAULT_MS, timelineDurationMs, type MediaItem, type Project, type TextItem } from '@shared/model'
+import { STILL_DEFAULT_MS, timelineDurationMs, type ClipTransform, type MediaItem, type Project, type TextItem } from '@shared/model'
 import { mediaUrl } from '@shared/mediaUrl'
 import { openSource, type MediaSource } from './clipSource'
 import { Compositor, type Layer } from './compositor'
@@ -10,7 +10,7 @@ const MAX_SOURCES = 6
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** A span of the output timeline backed by a range of one source file. */
-interface Seg { startMs: number; inMs: number; outMs: number; url: string | null; gain: number; still?: boolean }
+interface Seg { startMs: number; inMs: number; outMs: number; url: string | null; gain: number; still?: boolean; transform?: ClipTransform }
 type Queued = { frame: VideoFrame; ms: number; durMs: number }
 export type TextLayerFn = (texts: TextItem[], width: number, height: number) => Layer[]
 
@@ -83,7 +83,7 @@ export class Player {
     this.project = p
     const media = new Map(p.media.map((m) => [m.id, m]))
     this.size = { width: p.settings.width, height: p.settings.height }
-    this.video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume, still: media.get(v.mediaId)?.kind === 'image' }))
+    this.video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume, still: media.get(v.mediaId)?.kind === 'image', transform: v.transform }))
     const clipAudio = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: audioUrl(media.get(v.mediaId)), gain: v.volume }))
     // one producer per audio lane: items on a lane never overlap, so each lane plays in order
     const byLane = new Map<number, Seg[]>()
@@ -191,8 +191,9 @@ export class Player {
     return p
   }
 
-  private layers(frame: VideoFrame | null): Layer[] {
-    const out: Layer[] = frame ? [{ frame, fit: 'cover' }] : []
+  private layers(frame: VideoFrame | null, ms = this.shownMs >= 0 ? this.shownMs : this.t): Layer[] {
+    const transform = this.mode === 'timeline' ? this.segAt(ms)?.transform : undefined
+    const out: Layer[] = frame ? [{ frame, fit: 'cover', transform }] : []
     if (this.mode === 'timeline' && this.project && this.textLayers) {
       const texts = this.project.text.filter((x) => this.t >= x.startMs && this.t < x.startMs + x.durationMs)
       if (texts.length) out.push(...this.textLayers(texts, this.canvas.width, this.canvas.height))
@@ -201,7 +202,7 @@ export class Player {
   }
 
   private show(frame: VideoFrame | null, ms: number): void {
-    this.comp.draw(this.layers(frame))
+    this.comp.draw(this.layers(frame, ms))
     if (frame !== this.shown) this.shown?.close()
     this.shown = frame
     this.shownMs = ms

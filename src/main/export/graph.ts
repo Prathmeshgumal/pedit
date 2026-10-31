@@ -1,5 +1,6 @@
 import type { Aspect, ItemId, MediaItem, Project } from '../../shared/model'
-import { timelineDurationMs } from '../../shared/model'
+import { IDENTITY_TRANSFORM, timelineDurationMs } from '../../shared/model'
+import { transformFilters } from '../../shared/transform'
 import { TONEMAP_VF } from '../media/color'
 import type { EncoderInfo } from '../media/ffmpeg'
 
@@ -49,7 +50,7 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
     if (m.kind === 'image') args.push('-loop', '1', '-framerate', String(fps), '-t', dur, '-i', m.path)
     else args.push('-ss', sec(v.inMs), '-t', dur, '-i', m.path)
     // drop frames and shrink first: tone-mapping 4K120 HDR at full size is the slow part
-    const vf = [`fps=${fps}`, `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
+    const vf = [`fps=${fps}`, ...transformFilters(v.transform ?? IDENTITY_TRANSFORM), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
     fc.push(`[${n}:v]${vf.join(',')}[v${i}]`)
     if (m.hasAudio && m.kind === 'video') fc.push(`[${n}:a]${AFMT},atrim=duration=${dur},apad=whole_dur=${dur},asetpts=PTS-STARTPTS,volume=${v.volume}[a${i}]`)
     else fc.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${dur},${AFMT}[a${i}]`)

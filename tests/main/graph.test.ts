@@ -82,4 +82,11 @@ describe('export graph', () => {
     expect(fc).toContain('amix=inputs=3:duration=first:normalize=0')
     expect(args.filter((a) => a === '/v/mus.mov')).toHaveLength(2)
   })
+  it('applies crop, rotate and flip before the cover scale', () => {
+    const p = project()
+    p.video[1].transform = { rotate: 90, flipH: false, flipV: false, crop: { x: 0.5, y: 0, w: 0.5, h: 1 } }
+    const fc = buildExportArgs(p, O, {}, NV)[buildExportArgs(p, O, {}, NV).indexOf('-filter_complex') + 1]
+    const clip = fc.split(';').find((x) => x.startsWith('[1:v]'))!
+    expect(clip).toContain('crop=iw*0.5:ih*1:iw*0.5:ih*0,transpose=1,scale=')
+  })
 })
