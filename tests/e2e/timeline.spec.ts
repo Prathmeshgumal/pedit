@@ -245,3 +245,12 @@ test('Crop dialog with the 1:1 preset crops a portrait phone clip to a square', 
   expect(Math.abs(c.w * nat.w - c.h * nat.h)).toBeLessThan(4)
   await app.close()
 })
+
+test('F toggles full-screen preview', async () => {
+  const { app, win } = await oneClip('FS')
+  await win.keyboard.press('f')
+  await expect.poll(() => win.evaluate(() => document.fullscreenElement?.getAttribute('data-testid') ?? null)).toBe('preview-panel')
+  await win.keyboard.press('f')
+  await expect.poll(() => win.evaluate(() => document.fullscreenElement === null)).toBe(true)
+  await app.close()
+})

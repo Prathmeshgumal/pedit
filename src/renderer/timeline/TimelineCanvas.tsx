@@ -283,6 +283,7 @@ export function TimelineCanvas() {
       else if (k === 'q') deleteSide('left')
       else if (k === 'w') deleteSide('right')
       else if (k === 'n') s.setSnapping(!s.snapping)
+      else if (k === 'f') window.dispatchEvent(new CustomEvent('pedit-menu', { detail: 'fullscreenPreview' }))
       else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selectedItemId) deleteSelected()
       else if (e.key === 'k' || e.key === 'K') player?.pause()
       else if (e.key === 'l' || e.key === 'L') player?.play()
