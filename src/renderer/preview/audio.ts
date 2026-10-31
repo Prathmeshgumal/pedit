@@ -31,17 +31,20 @@ export class AudioOut {
   /** How far ahead of the clock (ms) a media time is. */
   aheadMs(mediaMs: number): number { return mediaMs - this.nowMs() }
 
-  schedule(buffer: AudioBuffer, mediaMs: number, gain = 1): void {
+  /** Play `buffer` placed at media time `atMs`, limited to the media window [loMs, hiMs). */
+  schedule(buffer: AudioBuffer, atMs: number, gain = 1, loMs = -Infinity, hiMs = Infinity): void {
     if (!this.running) return
-    const when = this.ctxStart + (mediaMs - this.mediaStartMs) / 1000
+    const now = this.nowMs()
+    const from = Math.max(atMs, loMs, now)
+    const to = Math.min(atMs + buffer.duration * 1000, hiMs)
+    if (to - from < 1) return
     const node = this.ctx.createBufferSource()
     node.buffer = buffer
     let target: AudioNode = this.ctx.destination
     if (gain !== 1) { const g = this.ctx.createGain(); g.gain.value = gain; g.connect(target); target = g }
     node.connect(target)
-    const offset = Math.max(0, this.ctx.currentTime - when)
-    if (offset >= buffer.duration) return
-    node.start(Math.max(when, this.ctx.currentTime), offset)
+    const when = this.ctxStart + (from - this.mediaStartMs) / 1000
+    node.start(Math.max(when, this.ctx.currentTime), (from - atMs) / 1000, (to - from) / 1000)
     node.onended = () => this.nodes.delete(node)
     this.nodes.add(node)
   }

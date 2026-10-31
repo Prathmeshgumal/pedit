@@ -16,7 +16,8 @@ const player = (win: Page, fn: string, ...args: unknown[]): Promise<unknown> =>
 async function selectReady(win: Page, name: string): Promise<void> {
   const tile = win.locator(`[data-testid=media-tile]:has-text("${name}")`)
   await expect(tile).toHaveAttribute('data-status', 'ready', { timeout: 180000 })
-  await tile.click()
+  await tile.dblclick()
+  await expect(win.locator('[data-testid=preview-panel]')).toContainText(name)
   await expect(win.locator('[data-testid=preview-canvas]')).toHaveAttribute('data-loaded', 'true', { timeout: 10000 })
 }
 

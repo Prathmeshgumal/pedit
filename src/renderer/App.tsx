@@ -6,6 +6,8 @@ import { PreviewPanel } from './panels/PreviewPanel'
 import { PropertiesPanel } from './panels/PropertiesPanel'
 import { ChatPanel } from './panels/ChatPanel'
 import { Welcome } from './Welcome'
+import { TimelineCanvas } from './timeline/TimelineCanvas'
+import { Toast } from './Toast'
 
 let connected = false
 
@@ -21,12 +23,10 @@ export function App() {
           <PreviewPanel />
           <PropertiesPanel />
           <ChatPanel />
-          <div data-testid="timeline" className="panel" style={{ gridColumn: '1 / 4' }}>
-            <div className="panel-title">Timeline</div>
-            <div className="text-xs text-neutral-500">Timeline editing arrives in Milestone 2.</div>
-          </div>
+          <TimelineCanvas />
         </div>
       ) : <Welcome />}
+      <Toast />
     </div>
   )
 }

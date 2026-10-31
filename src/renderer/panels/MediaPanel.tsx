@@ -1,7 +1,8 @@
 import { useMemo, useState, type DragEvent } from 'react'
 import type { MediaItem } from '@shared/model'
 import { mediaUrl } from '@shared/mediaUrl'
-import { fmtDur, useUi } from '../store'
+import { edit, fmtDur, useUi } from '../store'
+import { getPlayer } from '../preview/instance'
 
 const STAGE_LABEL = { thumb: 'thumbnail', filmstrip: 'filmstrip', waveform: 'waveform', proxy: 'preview copy' } as const
 
@@ -20,7 +21,7 @@ function Tile({ m }: { m: MediaItem }) {
     <div
       data-testid="media-tile" data-status={m.status} data-selected={selected ? 'true' : 'false'} data-media-id={m.id}
       draggable onDragStart={(e) => e.dataTransfer.setData('application/x-pedit-media', m.id)}
-      onClick={() => select(m.id)}
+      onClick={() => select(m.id)} onDoubleClick={() => useUi.getState().previewClip(m.id)}
       className={`group relative cursor-pointer overflow-hidden rounded-md bg-neutral-800 ${selected ? 'ring-2 ring-sky-400' : 'hover:ring-1 hover:ring-neutral-500'}`}
       title={m.path}
     >
@@ -85,7 +86,15 @@ export function MediaPanel() {
         <button className="btn flex-1" onClick={() => void pick('folder')}>＋ Folder</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {tab === 'text' && <div className="p-4 text-center text-xs text-neutral-500">Text tools arrive with the timeline.</div>}
+        {tab === 'text' && (
+          <div className="p-2">
+            <button data-testid="add-text" className="btn w-full" onClick={() => {
+              const t = getPlayer()?.mode === 'timeline' ? Math.round(getPlayer()!.timeMs) : 0
+              void edit({ type: 'addText', text: 'Your text', startMs: t, durationMs: 2000 })
+            }}>＋ Add text at playhead</button>
+            <div className="mt-2 text-[10px] text-neutral-500">Adds a 2s title. Edit it in Properties.</div>
+          </div>
+        )}
         {tab !== 'text' && groups.length === 0 && <div className="p-6 text-center text-xs text-neutral-500">Drop clips or folders here</div>}
         {groups.map(([folder, items]) => (
           <div key={folder} className="mb-3">
