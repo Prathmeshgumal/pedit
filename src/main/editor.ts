@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import type { MediaId, MediaItem } from '../shared/model'
 import type { Command } from '../shared/commands'
 import { EditSession, RevisionMismatch, type SessionState, type Source } from '../shared/session'
-import type { ProgressStage } from '../shared/ipc'
+import type { ChatTag, ProgressStage } from '../shared/ipc'
 import { ProjectStore } from './project/store'
 import { MediaPipeline, importPaths } from './media/jobs'
 import { detectEncoders } from './media/ffmpeg'
@@ -111,9 +111,26 @@ export class Editor {
     return (source === 'claude' ? session.applyToDraft(cmd, source) : session.apply(cmd, source)).summary
   }
 
+  /** The project's story (story.md next to project.json): what the video is about, in the user's words. */
+  async getStory(): Promise<string> {
+    const { store } = this.need()
+    return readFile(join(store.dir, 'story.md'), 'utf8').catch(() => '')
+  }
+
+  async setStory(text: string): Promise<void> {
+    const { store } = this.need()
+    await writeFile(join(store.dir, 'story.md'), text)
+  }
+
   /** Files the user attached to a chat message: new ones join the library in folder "Chat"; all come back as chips. */
-  async attachFiles(paths: string[]): Promise<Array<{ name: string; mediaId: MediaId; attached: 'photo' | 'video' | 'audio' }>> {
+  async attachFiles(paths: string[]): Promise<ChatTag[]> {
     const { session } = this.need()
+    // a text/markdown file becomes the project's story
+    const stories = paths.filter((p) => /\.(md|markdown|txt)$/i.test(p))
+    const storyChips: ChatTag[] = []
+    for (const p of stories) { await this.setStory(await readFile(p, 'utf8')); storyChips.push({ name: basename(p), mediaId: '', attached: 'story' }) }
+    paths = paths.filter((p) => !stories.includes(p))
+    if (!paths.length) return storyChips
     const fresh = await importPaths(paths, session.state().real.media, randomIds)
     if (fresh.length) {
       for (const m of fresh) m.folder = 'Chat'
@@ -121,7 +138,7 @@ export class Editor {
       for (const m of fresh) this.pipeline!.enqueue(m)
     }
     const media = session.state().real.media
-    const out: Array<{ name: string; mediaId: MediaId; attached: 'photo' | 'video' | 'audio' }> = []
+    const out: ChatTag[] = [...storyChips]
     for (const p of paths) {
       const m = media.find((x) => resolve(x.path) === resolve(p))
       if (m && !out.some((o) => o.mediaId === m.id)) out.push({ name: m.name, mediaId: m.id, attached: m.kind === 'image' ? 'photo' : m.kind })
@@ -130,7 +147,7 @@ export class Editor {
   }
 
   /** An image pasted into the chat: saved in the project's chat-files folder, then attached. */
-  async attachPastedImage(png: Uint8Array): Promise<Array<{ name: string; mediaId: MediaId; attached: 'photo' | 'video' | 'audio' }>> {
+  async attachPastedImage(png: Uint8Array): Promise<ChatTag[]> {
     const { store } = this.need()
     const dir = join(store.dir, 'chat-files')
     await mkdir(dir, { recursive: true })

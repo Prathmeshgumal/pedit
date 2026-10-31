@@ -19,7 +19,7 @@ export const CLAUDE_EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max
 export interface Settings { claudeModel: (typeof CLAUDE_MODELS)[number]; claudeEffort: (typeof CLAUDE_EFFORTS)[number] }
 
 /** A clip pointed at with @name, or a file attached to the message (`attached` = its kind). */
-export interface ChatTag { name: string; mediaId: MediaId; attached?: 'photo' | 'video' | 'audio' }
+export interface ChatTag { name: string; mediaId: MediaId; attached?: 'photo' | 'video' | 'audio' | 'story' }
 
 export interface RecentProject { dir: string; name: string; openedAt: string; exists: boolean }
 /** Actions the app menu asks the window to do (dialogs that live in the renderer). */
@@ -41,6 +41,8 @@ export interface PeditApi {
   freezeFrame(itemId: ItemId, atMs: number): Promise<void>
   frameImage(mediaId: MediaId, sourceMs: number): Promise<string>
   getSettings(): Promise<Settings>
+  getStory(): Promise<string>
+  setStory(text: string): Promise<void>
   setSettings(patch: Partial<Settings>): Promise<Settings>
   onMenu(cb: (a: MenuAction) => void): () => void
   pickImport(kind?: 'files' | 'folder'): Promise<string[]>
@@ -87,6 +89,8 @@ export const CH = {
   freezeFrame: 'edit:freeze',
   frameImage: 'media:frame',
   getSettings: 'settings:get',
+  getStory: 'story:get',
+  setStory: 'story:set',
   setSettings: 'settings:set',
   menu: 'app:menu',
   pickImport: 'media:pick',

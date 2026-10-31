@@ -115,6 +115,8 @@ function registerIpc(): void {
       return { ok: false, error: (e as Error).message }
     }
   })
+  ipcMain.handle(CH.getStory, () => editor.store ? editor.getStory() : '')
+  ipcMain.handle(CH.setStory, (_e, t: string) => editor.setStory(t))
   ipcMain.handle(CH.getSettings, () => getSettings().get())
   ipcMain.handle(CH.setSettings, (_e, patch) => getSettings().set(patch))
   ipcMain.handle(CH.freezeFrame, async (_e, id: string, atMs: number) => { await editor.freezeFrame(id, atMs) })
@@ -208,7 +210,8 @@ app.whenReady().then(async () => {
   await getSettings().get()
   mcp = await startMcpServer(() => editor.session, {
     lookAtMedia: (id, count) => editor.lookAtMedia(id, count),
-    freezeFrame: (id, atMs, durationMs, rev) => editor.freezeFrame(id, atMs, durationMs, 'claude', rev)
+    freezeFrame: (id, atMs, durationMs, rev) => editor.freezeFrame(id, atMs, durationMs, 'claude', rev),
+    getStory: () => editor.getStory()
   })
   await mcp.writeConfig(mcpConfigPath())
   const envDir = process.env.PEDIT_PROJECT_DIR

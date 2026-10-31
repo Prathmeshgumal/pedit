@@ -8,7 +8,9 @@ export interface TurnContext {
   lastDraft: 'accepted' | 'rejected' | 'pending' | null
   userEdits: string[]
   /** @-referenced clips; `attached` marks files the user attached to this message (with their kind). */
-  tags: Array<{ name: string; mediaId: string; attached?: 'photo' | 'video' | 'audio' }>
+  tags: Array<{ name: string; mediaId: string; attached?: 'photo' | 'video' | 'audio' | 'story' }>
+  /** Words in the project's story.md (0 or missing = no story). */
+  storyWords?: number
 }
 
 /** The user's message, prefixed with one [editor] line of context Claude can't see otherwise. */
@@ -16,7 +18,10 @@ export function buildTurnPrompt(userText: string, ctx: TurnContext): string {
   const parts: string[] = []
   if (ctx.lastDraft) parts.push(`Last draft: ${ctx.lastDraft}`)
   if (ctx.userEdits.length) parts.push(`User edited the draft: ${ctx.userEdits.join('; ')}`)
-  const refs = ctx.tags.filter((t) => !t.attached), files = ctx.tags.filter((t) => t.attached)
+  if (ctx.storyWords) parts.push(`The project has a story (${ctx.storyWords} words): call get_story before planning`)
+  const story = ctx.tags.find((t) => t.attached === 'story')
+  if (story) parts.push(`The user just attached ${story.name} as the story`)
+  const refs = ctx.tags.filter((t) => !t.attached), files = ctx.tags.filter((t) => t.attached && t.attached !== 'story')
   if (refs.length) parts.push(`Referenced clips: ${refs.map((t) => `@${t.name} = ${t.mediaId}`).join(', ')}`)
   if (files.length) parts.push(`Attached: ${files.map((t) => `${t.name} (${t.mediaId}, ${t.attached})`).join(', ')}`)
   return parts.length ? `[editor] ${parts.join('. ')}\n${userText}` : userText

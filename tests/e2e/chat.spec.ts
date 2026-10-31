@@ -102,3 +102,16 @@ test('a photo attached to the chat joins the library once and Claude can look at
   expect(n).toBeGreaterThan(1000)
   await app.close()
 })
+
+test('a .md file attached in chat becomes the story Claude reads, and shows in the Story tab', async () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'ST.pedit')
+  const app = await open(dir)
+  const win = await app.firstWindow()
+  await win.locator('[data-testid=chat-attach-input]').setInputFiles(resolve('tests/fixtures/story/story.md'))
+  await expect(win.locator('[data-testid=chat-chip]')).toContainText('story.md')
+  await win.locator('text=story').first().click()
+  await expect(win.locator('[data-testid=story-text]')).toHaveValue(/temple bells/)
+  await win.locator('[data-testid=story-text]').fill('# New story\nonly sunsets')
+  await expect.poll(() => pedit<string>(win, 'getStory')).toBe('# New story\nonly sunsets')
+  await app.close()
+})

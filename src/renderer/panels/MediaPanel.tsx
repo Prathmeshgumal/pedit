@@ -4,6 +4,7 @@ import { mediaUrl } from '@shared/mediaUrl'
 import { edit, fmtDur, useUi } from '../store'
 import { getPlayer } from '../preview/instance'
 import { openMenu, confirmDialog } from '../ContextMenu'
+import { StoryTab } from './StoryTab'
 
 /** Remove a media file from the project, asking first when the timeline uses it. */
 export async function removeMedia(m: MediaItem): Promise<void> {
@@ -89,7 +90,7 @@ function Tile({ m }: { m: MediaItem }) {
 
 export function MediaPanel() {
   const media = useUi((s) => s.project?.media ?? [])
-  const [tab, setTab] = useState<'media' | 'audio' | 'text'>('media')
+  const [tab, setTab] = useState<'media' | 'audio' | 'text' | 'story'>('media')
   const [over, setOver] = useState(false)
   const groups = useMemo(() => {
     const list = media.filter((m) => (tab === 'audio' ? m.kind === 'audio' : tab === 'media'))
@@ -115,7 +116,7 @@ export function MediaPanel() {
       onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setOver(true) } }}
       onDragLeave={() => setOver(false)} onDrop={onDrop}>
       <div className="flex gap-3 border-b border-neutral-700/60 px-2 pb-1.5 text-[11px] uppercase tracking-wide">
-        {(['media', 'audio', 'text'] as const).map((t) => (
+        {(['media', 'audio', 'text', 'story'] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={tab === t ? 'text-neutral-100' : 'text-neutral-500 hover:text-neutral-300'}>{t}</button>
         ))}
       </div>
@@ -131,6 +132,7 @@ export function MediaPanel() {
         ])}>⋯</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {tab === 'story' && <StoryTab />}
         {tab === 'text' && (
           <div className="p-2">
             <button data-testid="add-text" className="btn w-full" onClick={() => {

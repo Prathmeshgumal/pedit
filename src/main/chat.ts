@@ -44,7 +44,8 @@ export class ChatController {
     const hadDraft = session.state().draftActive
     let finished: Extract<ChatEvent, { kind: 'done' }> | null = null
     try {
-      const ctx: TurnContext = { lastDraft: hadDraft ? 'pending' : this.lastDraft, userEdits: session.takeUserEditsSinceLastTurn(), tags }
+      const story = (await this.editor.getStory()).trim()
+      const ctx: TurnContext = { lastDraft: hadDraft ? 'pending' : this.lastDraft, userEdits: session.takeUserEditsSinceLastTurn(), tags, storyWords: story ? story.split(/\s+/).length : 0 }
       this.lastDraft = null
       await store.appendChat({ at: now(), role: 'user', text })
       const prompt = buildTurnPrompt(text, ctx)

@@ -99,7 +99,11 @@ export function ChatPanel() {
   }
   const attachPaths = async (paths: string[]): Promise<void> => {
     if (!paths.length) return
-    try { addAttached(await window.pedit.attachToChat(paths)) } catch (err) { useUi.getState().showToast((err as Error).message) }
+    try {
+      const got = await window.pedit.attachToChat(paths)
+      if (got.some((g) => g.attached === 'story')) window.dispatchEvent(new Event('pedit-story'))
+      addAttached(got)
+    } catch (err) { useUi.getState().showToast((err as Error).message) }
   }
   const attachFiles = (files: FileList | null): void => {
     void attachPaths(Array.from(files ?? []).map((f) => window.pedit.pathForFile(f)).filter(Boolean))
@@ -152,8 +156,8 @@ export function ChatPanel() {
         {tags.length > 0 && (
           <div className="mb-1 flex flex-wrap gap-1">
             {tags.map((g) => (
-              <span key={g.mediaId} data-testid="chat-chip" title={g.attached ? `Attached ${g.attached}` : 'Clip you pointed at'}
-                className="rounded border border-violet-400 bg-violet-500/25 px-1 text-[10px]">{g.attached ? `${g.attached === 'photo' ? '🖼' : g.attached === 'video' ? '🎬' : '♪'} ` : '@'}{g.name}
+              <span key={`${g.mediaId}:${g.name}`} data-testid="chat-chip" title={g.attached ? `Attached ${g.attached}` : 'Clip you pointed at'}
+                className="rounded border border-violet-400 bg-violet-500/25 px-1 text-[10px]">{g.attached ? `${g.attached === 'photo' ? '🖼' : g.attached === 'video' ? '🎬' : g.attached === 'story' ? '📄' : '♪'} ` : '@'}{g.name}
                 <button className="ml-1 text-neutral-400" onClick={() => setTags((x) => x.filter((y) => y.mediaId !== g.mediaId))}>×</button></span>
             ))}
           </div>
@@ -165,7 +169,7 @@ export function ChatPanel() {
             placeholder={running ? 'Claude is working…' : 'Tell Claude what to do… (drop clips or files here, paste images)'}
             className="w-full resize-none bg-transparent text-xs text-neutral-100 outline-none placeholder:text-neutral-500 disabled:opacity-60" />
           <div className="flex items-center justify-end gap-1">
-            <input ref={fileInput} data-testid="chat-attach-input" type="file" multiple accept="video/*,audio/*,image/*" className="hidden"
+            <input ref={fileInput} data-testid="chat-attach-input" type="file" multiple accept="video/*,audio/*,image/*,.md,.markdown,.txt" className="hidden"
               onChange={(e) => { attachFiles(e.target.files); e.target.value = '' }} />
             <button data-testid="chat-attach" className="btn mr-auto" title="Attach videos, audio or photos" disabled={running} onClick={() => fileInput.current?.click()}>📎</button>
             {running

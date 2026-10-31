@@ -106,4 +106,18 @@ describe('Editor tools for Claude', () => {
     expect(b.mediaId).toBe(media[1].id)
     await ed.close()
   }, 60000)
+
+  it('keeps a story in story.md; attaching a .md file in chat sets it', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'pedit-ed-'))
+    const ed = new Editor(quiet)
+    await ed.newProject(join(base, 'P.pedit'), 'P')
+    expect(await ed.getStory()).toBe('')
+    await ed.setStory('# Trip\nopen on the river')
+    expect(readFileSync(join(base, 'P.pedit', 'story.md'), 'utf8')).toBe('# Trip\nopen on the river')
+    const chips = await ed.attachFiles([f('../story/story.md')])
+    expect(chips).toEqual([{ name: 'story.md', mediaId: '', attached: 'story' }])
+    expect(await ed.getStory()).toContain('temple bells')
+    expect(ed.state()!.real.media).toHaveLength(0)
+    await ed.close()
+  }, 60000)
 })

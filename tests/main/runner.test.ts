@@ -104,6 +104,12 @@ describe('buildTurnPrompt', () => {
     expect(buildTurnPrompt('use it first', { lastDraft: 'rejected', userEdits: ['trimmed c_000002 (a.mp4) to 0:02.0 (was 0:05.0)'], tags: [{ name: 'shrine.mov', mediaId: 'm_000004' }] }))
       .toBe('[editor] Last draft: rejected. User edited the draft: trimmed c_000002 (a.mp4) to 0:02.0 (was 0:05.0). Referenced clips: @shrine.mov = m_000004\nuse it first')
   })
+  it('tells Claude a story file exists, and when one was just attached', () => {
+    expect(buildTurnPrompt('cut it', { lastDraft: null, userEdits: [], tags: [], storyWords: 120 }))
+      .toBe('[editor] The project has a story (120 words): call get_story before planning\ncut it')
+    expect(buildTurnPrompt('cut it', { lastDraft: null, userEdits: [], tags: [{ name: 'plan.md', mediaId: '', attached: 'story' }], storyWords: 30 }))
+      .toBe('[editor] The project has a story (30 words): call get_story before planning. The user just attached plan.md as the story\ncut it')
+  })
   it('lists attached files with their media ids and kinds', () => {
     expect(buildTurnPrompt('put this in', { lastDraft: null, userEdits: [], tags: [{ name: 'IMG_1.jpg', mediaId: 'm_000009', attached: 'photo' }, { name: 'shrine.mov', mediaId: 'm_000004' }] }))
       .toBe('[editor] Referenced clips: @shrine.mov = m_000004. Attached: IMG_1.jpg (m_000009, photo)\nput this in')

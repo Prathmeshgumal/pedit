@@ -56,7 +56,7 @@ describe('pedit MCP server', () => {
   it('lists exactly the editor tools', async () => {
     const c = await connect(h.token)
     const names = (await c.listTools()).tools.map((t) => t.name).sort()
-    expect(names).toEqual(['add_clip', 'add_text', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_timeline', 'list_media', 'look_at_media',
+    expect(names).toEqual(['add_clip', 'add_text', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline', 'list_media', 'look_at_media',
       'move_item', 'remove_item', 'replace_clip', 'set_format', 'set_music', 'set_transform', 'set_volume', 'split_item', 'trim_item', 'update_text'])
   })
 
@@ -83,7 +83,7 @@ describe('pedit MCP server', () => {
 
   it('look_at_media returns a picture Claude can see, with the frame times', async () => {
     await h.close()
-    h = await startMcpServer(() => session, { lookAtMedia: async (mid, count) => ({ jpegBase64: Buffer.from(`jpeg:${mid}:${count}`).toString('base64'), times: [500, 1500] }), freezeFrame: async () => 'froze' })
+    h = await startMcpServer(() => session, { lookAtMedia: async (mid, count) => ({ jpegBase64: Buffer.from(`jpeg:${mid}:${count}`).toString('base64'), times: [500, 1500] }), freezeFrame: async () => 'froze', getStory: async () => '# Trip' })
     const c = await connect(h.token)
     const r = await c.callTool({ name: 'look_at_media', arguments: { mediaId: 'm_a', count: 8 } }) as { content: Array<{ type: string; mimeType?: string; data?: string; text?: string }> }
     const img = r.content.find((x) => x.type === 'image')!
@@ -92,6 +92,7 @@ describe('pedit MCP server', () => {
     expect(r.content.find((x) => x.type === 'text')!.text).toContain('0:00.5')
     const f = await c.callTool({ name: 'freeze_frame', arguments: { id: 'c_1', atMs: 1000, expectedRevision: 0 } }) as R
     expect(text(f)).toContain('froze')
+    expect(text(await c.callTool({ name: 'get_story', arguments: {} }))).toBe('# Trip')
   })
 
   it('reads media, edits into a draft, and guards the revision', async () => {

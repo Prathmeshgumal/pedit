@@ -23,7 +23,7 @@ async function setup(claudeSessionId: string | null) {
   const log: ChatEntry[] = []
   const store = { dir, claudeSessionId, appendChat: async (e: ChatEntry) => { log.push(e) }, readChat: async () => log,
     setClaudeSessionId: async (id: string) => { store.claudeSessionId = id } }
-  const editor = { store, session } as unknown as Editor
+  const editor = { store, session, getStory: async () => '' } as unknown as Editor
   h = await startMcpServer(() => session)
   const cfg = join(dir, 'mcp.json'); await h.writeConfig(cfg)
   process.env.PEDIT_CLAUDE_BIN = resolve('tests/fake-claude/fake-claude.mjs')

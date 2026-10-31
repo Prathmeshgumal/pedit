@@ -13,6 +13,8 @@ export interface McpServices {
   lookAtMedia(mediaId: string, count: number): Promise<{ jpegBase64: string; times: number[] | null }>
   /** Extract the frame and insert it as a freeze into Claude's draft; returns the edit summary. */
   freezeFrame(itemId: string, atMs: number, durationMs: number, expectedRevision: number): Promise<string>
+  /** The project's story.md ('' if none). */
+  getStory(): Promise<string>
 }
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -91,6 +93,13 @@ export function registerTools(server: McpServer, getSession: () => EditSession |
   edit('extract_audio', "Move a video clip's sound onto its own audio row (the clip is muted), so it can be trimmed or moved separately.", { id }, (a) => ({ type: 'extractAudio', id: a.id }))
   edit('duplicate_item', 'Copy an item: a video clip is inserted right after itself, text/audio go after the original on a free spot.', { id }, (a) => ({ type: 'duplicateItem', id: a.id }))
   edit('replace_clip', 'Swap the media of a video clip, keeping its place, length and framing.', { id, mediaId: z.string() }, (a) => ({ type: 'replaceClip', ...a }))
+
+  register('get_story', { description: "The user's story for this video (story.md): what it is about, the order, mood and must-have moments. Read it before planning an edit when the project has one.", inputSchema: {} }, async () => {
+    if (!getSession()) return err('no project open')
+    if (!services) return err('get_story is not available here')
+    const t = (await services.getStory()).trim()
+    return ok(t || '(no story yet: the user can write one in the Story tab or attach a .md file in chat)')
+  })
 
   register('freeze_frame', {
     description: 'Hold the frame of a video clip at timeline time atMs as a still for durationMs (default 3000): the clip is split there and the still inserted.',
