@@ -13,20 +13,26 @@ function encoderOpts(enc: string): string[] {
   return ['-preset', 'veryfast', '-crf', '26', '-pix_fmt', 'yuv420p']
 }
 
-/** Arguments for building a seek-friendly preview proxy (no leading global flags; see runFfmpeg). */
+/** Arguments for building a seek-friendly preview proxy (no leading global flags; see runFfmpeg).
+ *  Order matters for speed: drop frames and downscale before tone-mapping (tone-mapping 4K is ~10x slower). */
 export function proxyArgs(m: MediaItem, out: string, enc: EncoderInfo, opts: { hwDecode?: boolean } = {}): string[] {
   const fps = proxyFps(m)
   const vaapi = enc.h264.endsWith('_vaapi')
-  const filters = [
-    ...(isHdr(m) ? [TONEMAP_VF] : []),
-    `fps=${fps}`,
-    "scale='if(gte(iw,ih),960,-2)':'if(gte(iw,ih),-2,960)'",
-    vaapi ? 'format=nv12,hwupload' : 'format=yuv420p'
-  ]
-  const hw = opts.hwDecode !== false && enc.hwaccel.includes('cuda') ? ['-hwaccel', 'cuda'] : []
+  const landscape = m.width >= m.height
+  const cuda = opts.hwDecode !== false && enc.hwaccel.includes('cuda')
+  // Full-GPU decode+scale only when no rotation filter is needed (autorotate cannot run on GPU frames).
+  const gpuFrames = cuda && m.rotation === 0
+  const tail = [...(isHdr(m) ? [TONEMAP_VF] : ['format=yuv420p']), ...(vaapi ? ['format=nv12', 'hwupload'] : [])]
+  let filters: string[]
+  if (gpuFrames) {
+    const fmt = m.bitDepth > 8 ? 'p010le' : 'nv12'
+    filters = [`fps=${fps}`, `scale_cuda=${landscape ? '960:-2' : '-2:960'}:format=${fmt}`, 'hwdownload', `format=${fmt}`, ...tail]
+  } else {
+    filters = [`fps=${fps}`, "scale='if(gte(iw,ih),960,-2)':'if(gte(iw,ih),-2,960)'", ...tail]
+  }
   return [
     ...(vaapi && enc.vaapiDevice ? ['-vaapi_device', enc.vaapiDevice] : []),
-    ...hw,
+    ...(cuda ? ['-hwaccel', 'cuda', ...(gpuFrames ? ['-hwaccel_output_format', 'cuda'] : [])] : []),
     '-i', m.path,
     '-map', '0:v:0', '-map', '0:a:0?',
     '-vf', filters.join(','),

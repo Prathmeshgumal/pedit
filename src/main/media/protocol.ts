@@ -4,10 +4,8 @@ import { createRequire } from 'node:module'
 import { Readable } from 'node:stream'
 import { extname } from 'node:path'
 
-export const MEDIA_SCHEME = 'pedit-media'
-
-/** pedit-media://local/<encodeURIComponent(absolute path)> */
-export const mediaUrl = (absPath: string): string => `${MEDIA_SCHEME}://local/${encodeURIComponent(absPath)}`
+import { MEDIA_SCHEME } from '../../shared/mediaUrl'
+export { MEDIA_SCHEME, mediaUrl } from '../../shared/mediaUrl'
 
 /** undefined = no Range header; null = unsatisfiable. */
 export function parseRange(header: string | null, size: number): { start: number; end: number } | null | undefined {

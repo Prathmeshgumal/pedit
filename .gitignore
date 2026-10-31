@@ -4,3 +4,5 @@ dist
 resources/ffmpeg
 tests/fixtures/media
 .superpowers
+test-results
+playwright-report

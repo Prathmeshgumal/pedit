@@ -27,7 +27,8 @@ async function cacheKey(path: string): Promise<string> {
 function stagesFor(m: MediaItem): Stage[] {
   if (m.kind === 'audio') return ['waveform']
   if (m.kind === 'image') return ['thumb']
-  return m.hasAudio ? ['thumb', 'filmstrip', 'waveform', 'proxy'] : ['thumb', 'filmstrip', 'proxy']
+  // filmstrip is cut from the proxy: small frames with a keyframe every 0.5s make it fast
+  return m.hasAudio ? ['thumb', 'waveform', 'proxy', 'filmstrip'] : ['thumb', 'proxy', 'filmstrip']
 }
 
 class Pool {
@@ -72,7 +73,7 @@ export class MediaPipeline {
         else void runStage(i + 1)
       }
       try {
-        const out = await this.produce(m, stage)
+        const out = await this.produce(m, stage, patch.proxyPath)
         ;(patch as Record<string, unknown>)[PATH_KEY[stage]] = out
         this.update(m.id, { [PATH_KEY[stage]]: out })
         this.onProgress(m.id, stage, 100)
@@ -97,7 +98,7 @@ export class MediaPipeline {
     return () => (this.priority.has(id) ? -1e15 : 0) + (this.order.get(id) ?? 0)
   }
 
-  private async produce(m: MediaItem, stage: Stage): Promise<string> {
+  private async produce(m: MediaItem, stage: Stage, proxyFor?: string): Promise<string> {
     await mkdir(this.cacheDir, { recursive: true })
     const out = join(this.cacheDir, `${await cacheKey(m.path)}.${stage}.${EXT[stage]}`)
     if (existsSync(out)) return out
@@ -106,7 +107,7 @@ export class MediaPipeline {
     const pct = (ms: number): void => this.onProgress(m.id, stage, Math.min(99, Math.round((ms / Math.max(1, m.durationMs)) * 100)))
     try {
       if (stage === 'thumb') await runFfmpeg(thumbArgs(m, tmp), { signal })
-      else if (stage === 'filmstrip') await runFfmpeg(filmstripArgs(m, tmp), { signal })
+      else if (stage === 'filmstrip') await runFfmpeg(filmstripArgs({ ...m, path: proxyFor ?? m.path, colorTransfer: proxyFor ? 'sdr' : m.colorTransfer }, tmp), { signal })
       else if (stage === 'waveform') await buildWaveform(m.path, tmp, signal)
       else {
         try {

@@ -61,7 +61,7 @@ describe('MediaPipeline', () => {
   it('builds thumb, filmstrip, waveform and a seek-friendly proxy for 4K120 HLG', async () => {
     const cache = mkdtempSync(join(tmpdir(), 'pedit-cache-'))
     const { item, stages } = await runPipeline(cache, enc, await media('day1/hevc_4k120_hlg.mov'))
-    expect(stages).toEqual(['thumb', 'filmstrip', 'waveform', 'proxy'])
+    expect(stages).toEqual(['thumb', 'waveform', 'proxy', 'filmstrip'])
     for (const p of [item.thumbPath, item.filmstripPath, item.waveformPath, item.proxyPath]) expect(existsSync(p!)).toBe(true)
     const px = await probe(item.proxyPath!)
     expect(px.codec).toBe('h264')
