@@ -1,0 +1,6 @@
+node_modules
+out
+dist
+resources/ffmpeg
+tests/fixtures/media
+.superpowers
