@@ -7,7 +7,7 @@ import type { SessionState } from './session'
 export interface ChatEntry { at: string; role: 'user' | 'assistant' | 'step' | 'system'; text: string }
 export type ChatEvent =
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; id: string; name: string; input: unknown }
+  | { kind: 'tool'; id: string; name: string; input: unknown; internal?: true }
   | { kind: 'toolResult'; id: string; ok: boolean; text: string }
   | { kind: 'done'; sessionId: string | null; ok: boolean; error?: 'not_installed' | 'not_logged_in' | 'usage_limit' | 'stopped' | 'crashed'; message?: string; usage?: unknown }
 export interface ClaudeStatus { ok: boolean; reason?: string; version?: string }

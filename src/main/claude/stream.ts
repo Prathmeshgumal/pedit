@@ -1,7 +1,7 @@
 export type RunnerError = 'not_installed' | 'not_logged_in' | 'usage_limit' | 'stopped' | 'crashed'
 export type RunnerEvent =
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; id: string; name: string; input: unknown }
+  | { kind: 'tool'; id: string; name: string; input: unknown; internal?: true }
   | { kind: 'toolResult'; id: string; ok: boolean; text: string }
   | { kind: 'done'; sessionId: string | null; ok: boolean; error?: RunnerError; message?: string; usage?: unknown }
 
@@ -28,7 +28,12 @@ export function parseStreamLine(line: string): RunnerEvent[] {
     const out: RunnerEvent[] = []
     for (const b of d.message?.content ?? []) {
       if (b.type === 'text' && b.text) out.push({ kind: 'text', text: b.text })
-      else if (b.type === 'tool_use') out.push({ kind: 'tool', id: b.id ?? '', name: (b.name ?? '').replace(MCP_PREFIX, ''), input: b.input })
+      else if (b.type === 'tool_use') {
+        const name = b.name ?? ''
+        out.push(name.startsWith(MCP_PREFIX)
+          ? { kind: 'tool', id: b.id ?? '', name: name.slice(MCP_PREFIX.length), input: b.input }
+          : { kind: 'tool', id: b.id ?? '', name, input: b.input, internal: true })
+      }
     }
     return out
   }

@@ -23,6 +23,8 @@ describe('parseStreamLine', () => {
     expect(t.name).toBe('Read'); expect(r.id).toBe(t.id); expect(r.ok).toBe(true); expect(r.text).toContain('pedit sample file')
     const mcp = parseStreamLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: 'mcp__pedit__add_clip', input: { mediaId: 'm' } }] } }))
     expect(mcp).toEqual([{ kind: 'tool', id: 'x', name: 'add_clip', input: { mediaId: 'm' } }])
+    // Claude Code's own tools (e.g. ToolSearch) are marked internal so the chat can hide them
+    expect(t).toMatchObject({ name: 'Read', internal: true })
   })
   it('maps tool errors and error results', () => {
     expect(parseStreamLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'x', is_error: true, content: [{ type: 'text', text: 'not_found: item c_1 not found' }] }] } })))

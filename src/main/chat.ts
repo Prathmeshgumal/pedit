@@ -34,9 +34,12 @@ export class ChatController {
     const runner = this.makeRunner(store.dir)
     this.runner = runner
     const tools = new Map<string, string>()
+    const internal = new Set<string>() // Claude Code's own tools (e.g. ToolSearch) aren't shown
     const log: ChatEntry[] = []
     try {
       await runner.send(buildTurnPrompt(text, ctx), store.claudeSessionId, (e) => {
+        if (e.kind === 'tool' && e.internal) { internal.add(e.id); return }
+        if (e.kind === 'toolResult' && internal.has(e.id)) return
         this.emit(e)
         if (e.kind === 'tool') tools.set(e.id, e.name)
         else if (e.kind === 'toolResult') log.push({ at: now(), role: 'step', text: stepText(tools.get(e.id) ?? '', e.ok, e.text) })

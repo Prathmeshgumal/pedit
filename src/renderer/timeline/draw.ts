@@ -45,11 +45,12 @@ function tickStep(pxPerMs: number): number {
   return 1200000
 }
 
-function label(ms: number): string {
-  const s = ms / 1000
-  const m = Math.floor(s / 60)
-  const r = s - m * 60
-  return `${m}:${(Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1)).padStart(2, '0')}`
+export function rulerLabel(ms: number): string {
+  const tenths = Math.round(ms / 100)
+  const m = Math.floor(tenths / 600)
+  const r = tenths - m * 600
+  const whole = String(Math.floor(r / 10)).padStart(2, '0')
+  return r % 10 ? `${m}:${whole}.${r % 10}` : `${m}:${whole}`
 }
 
 function stripes(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
@@ -75,7 +76,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
     const x = Math.round(msToX(t, s.pxPerMs, s.scrollMs)) + 0.5
     if (x < HEADER_W) continue
     ctx.beginPath(); ctx.moveTo(x, RULER_H - 7); ctx.lineTo(x, RULER_H); ctx.stroke()
-    ctx.fillText(label(t), x + 3, 12)
+    ctx.fillText(rulerLabel(t), x + 3, 12)
   }
   // track backgrounds + labels
   for (const [name, t] of Object.entries(TRACKS) as Array<[Track, (typeof TRACKS)[Track]]>) {
