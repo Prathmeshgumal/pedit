@@ -3,15 +3,15 @@ import { useUi, edit } from '../store'
 import { getPlayer } from '../preview/instance'
 import { HEADER_W, RULER_H, contentHeight, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
 import { drawPlayhead, drawTimeline, type DrawState } from './draw'
-import { dragToCommand, snapCandidates, splitTarget, type Zone } from './interact'
+import { dragToCommand, snapCandidates, type Zone } from './interact'
+import { Toolbar, MIN_ZOOM, MAX_ZOOM } from './Toolbar'
+import { deleteSelected, deleteSide, splitAtPlayhead } from './actions'
 import { timelineDurationMs } from '@shared/model'
 
 type Drag =
   | { kind: 'scrub' }
   | { kind: 'item'; id: string; track: Track; zone: Zone; startX: number; dxMs: number; moved: boolean }
 
-const MIN_ZOOM = 0.001 // px per ms (1px = 1s)
-const MAX_ZOOM = 0.5
 
 export function TimelineCanvas() {
   const session = useUi((s) => s.session)
@@ -161,7 +161,7 @@ export function TimelineCanvas() {
     let dxMs = (x - d.startX) / pxPerMs
     const cands = snapCandidates(project, d.id, playhead)
     const edgeMs = d.zone === 'right-edge' ? it.endMs : it.startMs
-    dxMs = snapMs(edgeMs + dxMs, cands, 8, pxPerMs) - edgeMs
+    if (useUi.getState().snapping) dxMs = snapMs(edgeMs + dxMs, cands, 8, pxPerMs) - edgeMs
     d.dxMs = dxMs
     setGhost({ id: d.id, dxMs, ...(d.zone === 'body' ? {} : { trim: d.zone }) })
   }
@@ -176,6 +176,15 @@ export function TimelineCanvas() {
     const lane = over?.kind === 'audio' ? over.lane : undefined
     const cmd = dragToCommand(project, d.id, d.track, d.zone, d.dxMs, lane)
     if (cmd) void edit(cmd)
+  }
+
+  /** Zoom keeping the playhead where it is on screen. */
+  const zoomAround = (z: number): void => {
+    const x = HEADER_W + (playhead - scrollMs) * pxPerMs
+    const anchor = x >= HEADER_W && x <= width ? x : HEADER_W
+    const at = xToMs(anchor, pxPerMs, scrollMs)
+    setPxPerMs(z)
+    setScrollMs(Math.max(0, at - (anchor - HEADER_W) / z))
   }
 
   const onWheel = (e: WheelEvent): void => {
@@ -216,6 +225,17 @@ export function TimelineCanvas() {
     else void edit({ type: 'addAudio', mediaId, startMs: Math.round(t.ms), lane: t.row.lane })
   }
 
+  // View menu zoom items
+  useEffect(() => {
+    const on = (e: Event): void => {
+      const a = (e as CustomEvent<string>).detail
+      if (a === 'zoomIn') setPxPerMs((z) => Math.min(MAX_ZOOM, z * 1.5))
+      else if (a === 'zoomOut') setPxPerMs((z) => Math.max(MIN_ZOOM, z / 1.5))
+    }
+    window.addEventListener('pedit-menu', on)
+    return () => window.removeEventListener('pedit-menu', on)
+  }, [])
+
   // keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -228,14 +248,18 @@ export function TimelineCanvas() {
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); void (e.shiftKey ? window.pedit.redo() : window.pedit.undo()); return }
       if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); void window.pedit.redo(); return }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); s.showToast('Saved'); return }
+      if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); splitAtPlayhead(); return }
+      if (mod && (e.key === '=' || e.key === '+')) { e.preventDefault(); setPxPerMs((z) => Math.min(MAX_ZOOM, z * 1.5)); return }
+      if (mod && e.key === '-') { e.preventDefault(); setPxPerMs((z) => Math.max(MIN_ZOOM, z / 1.5)); return }
       if (mod || !p) return
       const t = player?.mode === 'timeline' ? player.timeMs : 0
-      if (e.key === 's' || e.key === 'S') {
-        const id = splitTarget(p, s.selectedItemId, t)
-        if (id) void edit({ type: 'splitItem', id, atMs: Math.round(t) })
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selectedItemId) {
-        void edit({ type: 'removeItem', id: s.selectedItemId }); s.selectItem(null)
-      } else if (e.key === 'k' || e.key === 'K') player?.pause()
+      const k = e.key.toLowerCase()
+      if (k === 's') splitAtPlayhead()
+      else if (k === 'q') deleteSide('left')
+      else if (k === 'w') deleteSide('right')
+      else if (k === 'n') s.setSnapping(!s.snapping)
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selectedItemId) deleteSelected()
+      else if (e.key === 'k' || e.key === 'K') player?.pause()
       else if (e.key === 'l' || e.key === 'L') player?.play()
       else if (e.key === 'j' || e.key === 'J') void player?.seek(Math.max(0, t - 2000))
       else if (e.key === 'ArrowLeft') void player?.seek(Math.max(0, t - (e.shiftKey ? 1000 : 1000 / (p.settings.fps))))
@@ -247,14 +271,8 @@ export function TimelineCanvas() {
 
   return (
     <div data-testid="timeline" className="panel flex min-h-0 flex-col" style={{ gridColumn: '1 / 4' }}>
-      <div className="flex items-center gap-2 pb-1 text-[10px] uppercase tracking-wide text-neutral-500">
-        <span>Timeline</span>
-        {session?.draftActive && <span className="rounded bg-violet-500/30 px-1.5 normal-case text-violet-200">Showing Claude's draft</span>}
-        <span className="ml-auto normal-case">S split · Del delete · Ctrl+wheel zoom</span>
-        <button className="btn normal-case" onClick={() => setPxPerMs((z) => Math.min(MAX_ZOOM, z * 1.5))}>＋</button>
-        <button className="btn normal-case" onClick={() => setPxPerMs((z) => Math.max(MIN_ZOOM, z / 1.5))}>－</button>
-        <button className="btn normal-case" onClick={() => { if (project) { const d = timelineDurationMs(project); if (d) { setPxPerMs(Math.min(MAX_ZOOM, (width - HEADER_W - 40) / d)); setScrollMs(0) } } }}>Fit</button>
-      </div>
+      <Toolbar playhead={playhead} pxPerMs={pxPerMs} setZoom={zoomAround}
+        fit={() => { if (project) { const d = timelineDurationMs(project); if (d) { setPxPerMs(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (width - HEADER_W - 40) / d))); setScrollMs(0) } } }} />
       <div ref={wrap} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <canvas ref={overlay} className="pointer-events-none absolute left-0 top-0" style={{ width, height: H }} />
         <canvas ref={canvas} data-testid="timeline-canvas" style={{ width, height: H, cursor, display: 'block' }}

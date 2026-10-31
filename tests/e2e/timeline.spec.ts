@@ -123,3 +123,71 @@ test('audio can sit on several lanes: drop on the + AUDIO row, drag between rows
   await expect.poll(async () => (await audio()).every((a) => (a.lane ?? 0) === 0)).toBe(true)
   await app.close()
 })
+
+async function oneClip(name: string): Promise<{ app: Awaited<ReturnType<typeof launch>>; win: Page; clip: () => Promise<{ id: string; startMs: number; inMs: number; outMs: number; transform?: { rotate: number } }> }> {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), `${name}.pedit`) })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const st0 = await pedit<{ real: { media: Array<{ id: string }> } }>(win, 'getState')
+  await pedit(win, 'edit', { type: 'addClip', mediaId: st0.real.media[0].id })
+  await expect.poll(async () => (await items(win)).filter((i) => i.track === 'video').length).toBe(1)
+  return { app, win, clip: async () => (await pedit<{ view: { video: Array<{ id: string; startMs: number; inMs: number; outMs: number; transform?: { rotate: number } }> } }>(win, 'getState')).view.video[0] }
+}
+
+async function selectClipAt(win: Page, ms: number): Promise<void> {
+  await win.evaluate((t) => (window as unknown as { __peditPlayer: { seek(ms: number): Promise<void> } }).__peditPlayer.seek(t), ms)
+  const v = (await items(win)).find((i) => i.track === 'video')!
+  // click the clip body away from the playhead line and the edges
+  await win.mouse.click(v.left + (v.right - v.left) * 0.8, v.cy)
+}
+
+test('Q deletes the part of the clip left of the playhead, W the part to the right', async () => {
+  const { app, win, clip } = await oneClip('QW')
+  await selectClipAt(win, 2000)
+  await win.keyboard.press('q')
+  await expect.poll(async () => { const c = await clip(); return c.outMs - c.inMs }).toBe(3000)
+  await win.keyboard.press('Control+z')
+  await expect.poll(async () => { const c = await clip(); return c.outMs - c.inMs }).toBe(5000)
+  await selectClipAt(win, 2000)
+  await win.keyboard.press('w')
+  await expect.poll(async () => { const c = await clip(); return c.outMs - c.inMs }).toBe(2000)
+  await app.close()
+})
+
+test('toolbar Rotate turns the selected clip a quarter turn', async () => {
+  const { app, win, clip } = await oneClip('ROT')
+  await expect(win.locator('[data-testid=tool-rotate]')).toBeDisabled()
+  await selectClipAt(win, 1000)
+  await win.locator('[data-testid=tool-rotate]').click()
+  await expect.poll(async () => (await clip()).transform?.rotate).toBe(90)
+  await app.close()
+})
+
+test('with snapping off a text item can land one frame away from an edge', async () => {
+  const { app, win } = await oneClip('SNAP')
+  await pedit(win, 'edit', { type: 'addText', text: 'hi', startMs: 2000, durationMs: 1000 })
+  await expect.poll(async () => (await items(win)).filter((i) => i.track === 'text').length).toBe(1)
+  const text = async (): Promise<number> => (await pedit<{ view: { text: Array<{ startMs: number }> } }>(win, 'getState')).view.text[0].startMs
+  const dragTextTo = async (ms: number): Promise<void> => {
+    const t = (await items(win)).find((i) => i.track === 'text')!
+    const pxPerMs = (t.right - t.left) / (t.endMs - t.startMs)
+    const mid = (t.left + t.right) / 2
+    await win.mouse.move(mid, t.cy); await win.mouse.down()
+    await win.mouse.move(mid + (ms - t.startMs) * pxPerMs / 2, t.cy, { steps: 4 })
+    await win.mouse.move(mid + (ms - t.startMs) * pxPerMs, t.cy, { steps: 4 })
+    await win.mouse.up()
+  }
+  // the playhead sits at 0; move it away so only the clip edge at 0 attracts
+  await win.evaluate(() => (window as unknown as { __peditPlayer: { seek(ms: number): Promise<void> } }).__peditPlayer.seek(4500))
+  await dragTextTo(1000 / 30)
+  await expect.poll(text).toBe(0) // snapped onto the clip's start
+  await pedit(win, 'edit', { type: 'moveItem', id: (await items(win)).find((i) => i.track === 'text')!.id, toMs: 2000 })
+  await expect.poll(text).toBe(2000)
+  await win.keyboard.press('n')
+  await expect(win.locator('[data-testid=tool-snap]')).toHaveAttribute('data-on', 'false')
+  await dragTextTo(1000 / 30)
+  await expect.poll(text).toBeGreaterThan(0)
+  expect(await text()).toBeLessThan(100)
+  await app.close()
+})

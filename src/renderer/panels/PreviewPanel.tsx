@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useUi, fmtDur } from '../store'
+import { useUi, edit } from '../store'
+import { fmtTimecode } from '@shared/time'
+import type { Aspect } from '@shared/model'
 import { Player } from '../preview/player'
 import { setPlayer } from '../preview/instance'
 import { textLayers } from '../text/layers'
@@ -19,6 +21,19 @@ export function PreviewPanel() {
   const [playing, setPlaying] = useState(false)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [aspect, setAspect] = useState(16 / 9)
+  const panel = useRef<HTMLDivElement>(null)
+  const [full, setFull] = useState(false)
+  useEffect(() => {
+    const on = (): void => setFull(document.fullscreenElement === panel.current)
+    document.addEventListener('fullscreenchange', on)
+    const menu = (e: Event): void => { if ((e as CustomEvent<string>).detail === 'fullscreenPreview') toggleFull() }
+    window.addEventListener('pedit-menu', menu)
+    return () => { document.removeEventListener('fullscreenchange', on); window.removeEventListener('pedit-menu', menu) }
+  }, [])
+  const toggleFull = (): void => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void panel.current?.requestFullscreen()
+  }
 
   useEffect(() => {
     const p = new Player(canvas.current!)
@@ -81,7 +96,7 @@ export function PreviewPanel() {
 
   const empty = !clipId && !!view && view.video.length === 0 && view.text.length === 0
   return (
-    <div data-testid="preview-panel" className="panel flex min-h-0 flex-col">
+    <div ref={panel} data-testid="preview-panel" className={`panel flex min-h-0 flex-col ${full ? 'bg-black' : ''}`}>
       <div className="flex items-center gap-2 pb-1 text-[10px] uppercase tracking-wide text-neutral-500">
         {clipId ? (
           <>
@@ -104,11 +119,29 @@ export function PreviewPanel() {
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 pt-1.5 text-[11px] text-neutral-400">
-        <button className="btn w-8" disabled={!loaded} onClick={() => player.current?.toggle()}>{playing ? '❚❚' : '▶'}</button>
-        <input type="range" className="flex-1 accent-sky-500" min={0} max={dur || 1} step={1} value={t} disabled={!loaded}
+      {clipId && (
+        <input data-testid="clip-scrub" type="range" className="mt-1 w-full accent-sky-500" min={0} max={dur || 1} step={1} value={t} disabled={!loaded}
           onChange={(e) => void player.current?.seek(Number(e.target.value))} />
-        <span className="tabular-nums">{fmtDur(t)} / {fmtDur(dur)}</span>
+      )}
+      <div data-testid="player-bar" className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-1.5 text-[11px] text-neutral-400">
+        <span data-testid="timecode" className="font-mono tabular-nums">
+          <span className="text-neutral-100">{fmtTimecode(t, clipId ? (clip?.fps || 30) : (view?.settings.fps ?? 30))}</span>
+          <span className="text-neutral-500"> | {fmtTimecode(dur, clipId ? (clip?.fps || 30) : (view?.settings.fps ?? 30))}</span>
+        </span>
+        <button data-testid="play" title="Play / pause (Space)" disabled={!loaded} onClick={() => player.current?.toggle()}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-neutral-900 hover:bg-white disabled:opacity-40">
+          {playing ? <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="1" width="3" height="10" fill="currentColor" /><rect x="7" y="1" width="3" height="10" fill="currentColor" /></svg>
+            : <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1 L11 6 L3 11 Z" fill="currentColor" /></svg>}
+        </button>
+        <span className="flex items-center justify-end gap-2">
+          {view && !clipId && (
+            <select data-testid="aspect" title="Video shape" className="rounded bg-neutral-800 px-1 py-0.5 text-neutral-200" value={view.settings.aspect}
+              onChange={(e) => void edit({ type: 'setFormat', aspect: e.target.value as Aspect })}>
+              <option value="16:9">16:9 YouTube</option><option value="9:16">9:16 Reels</option><option value="1:1">1:1 Square</option>
+            </select>
+          )}
+          <button data-testid="fullscreen" className="btn" title={full ? 'Exit full screen (Esc)' : 'Full screen'} onClick={toggleFull}>{full ? '⤡' : '⤢'}</button>
+        </span>
       </div>
     </div>
   )

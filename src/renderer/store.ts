@@ -15,6 +15,8 @@ interface UiState {
   clipPreviewId: MediaId | null
   toast: string | null
   chatRunning: boolean
+  snapping: boolean
+  setSnapping(v: boolean): void
   setChatRunning(v: boolean): void
   selectItem(id: ItemId | null): void
   previewClip(id: MediaId | null): void
@@ -34,6 +36,8 @@ export const useUi = create<UiState>((set) => ({
   clipPreviewId: null,
   toast: null,
   chatRunning: false,
+  snapping: true,
+  setSnapping: (snapping) => set({ snapping }),
   setChatRunning: (chatRunning) => set({ chatRunning }),
   selectItem: (selectedItemId) => set({ selectedItemId }),
   previewClip: (clipPreviewId) => set({ clipPreviewId }),
