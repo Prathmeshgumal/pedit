@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { CH, type MenuAction } from '../shared/ipc'
 import { Recents } from './recents'
+import { SettingsStore } from './settings'
 import { buildMenu } from './menu'
 import { CommandError } from '../shared/commands'
 import { Editor } from './editor'
@@ -33,7 +34,13 @@ const editor = new Editor({
 
 const lastFile = (): string => join(app.getPath('userData'), 'last-project.json')
 const guidePath = (): string => app.isPackaged ? join(process.resourcesPath, 'editor-guide.md') : join(app.getAppPath(), 'src/main/claude/editor-guide.md')
-const chat = new ChatController(editor, { mcpConfig: () => mcpConfigPath(), get guide() { return guidePath() } }, (e) => send(CH.chatEvent, e))
+let settings: SettingsStore | null = null
+const getSettings = (): SettingsStore => (settings ??= new SettingsStore(join(app.getPath('userData'), 'settings.json')))
+const chat = new ChatController(editor, {
+  mcpConfig: () => mcpConfigPath(),
+  get guide() { return guidePath() },
+  claude: () => { const s = getSettings().current; return { model: s.claudeModel, effort: s.claudeEffort } }
+}, (e) => send(CH.chatEvent, e))
 
 let recents: Recents | null = null
 const getRecents = (): Recents => (recents ??= new Recents(join(app.getPath('userData'), 'recent.json')))
@@ -108,6 +115,8 @@ function registerIpc(): void {
       return { ok: false, error: (e as Error).message }
     }
   })
+  ipcMain.handle(CH.getSettings, () => getSettings().get())
+  ipcMain.handle(CH.setSettings, (_e, patch) => getSettings().set(patch))
   ipcMain.handle(CH.freezeFrame, async (_e, id: string, atMs: number) => { await editor.freezeFrame(id, atMs) })
   ipcMain.handle(CH.frameImage, (_e, id: string, ms: number) => editor.frameImage(id, ms))
   ipcMain.handle(CH.removeUnusedMedia, () => {
@@ -194,7 +203,11 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(async () => {
   registerMediaProtocol()
   registerIpc()
-  mcp = await startMcpServer(() => editor.session)
+  await getSettings().get()
+  mcp = await startMcpServer(() => editor.session, {
+    lookAtMedia: (id, count) => editor.lookAtMedia(id, count),
+    freezeFrame: (id, atMs, durationMs, rev) => editor.freezeFrame(id, atMs, durationMs, 'claude', rev)
+  })
   await mcp.writeConfig(mcpConfigPath())
   const envDir = process.env.PEDIT_PROJECT_DIR
   try {

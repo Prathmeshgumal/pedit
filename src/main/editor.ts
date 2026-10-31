@@ -2,15 +2,15 @@ import { basename } from 'node:path'
 import { existsSync } from 'node:fs'
 import type { MediaId, MediaItem } from '../shared/model'
 import type { Command } from '../shared/commands'
-import { EditSession, type SessionState, type Source } from '../shared/session'
+import { EditSession, RevisionMismatch, type SessionState, type Source } from '../shared/session'
 import type { ProgressStage } from '../shared/ipc'
 import { ProjectStore } from './project/store'
 import { MediaPipeline, importPaths } from './media/jobs'
 import { detectEncoders } from './media/ffmpeg'
 import { randomIds } from '../shared/ids'
 import { probe } from './media/probe'
-import { extractFrame } from './media/frames'
-import { mkdir } from 'node:fs/promises'
+import { contactSheet, extractFrame } from './media/frames'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 type Listener = { state(s: SessionState | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
@@ -87,8 +87,11 @@ export class Editor {
   }
 
   /** Freeze the frame of video clip `itemId` shown at timeline time `atMs`: a photo of it is imported and held for `durationMs`. */
-  async freezeFrame(itemId: string, atMs: number, durationMs = 3000, source: Source = 'user'): Promise<string> {
+  async freezeFrame(itemId: string, atMs: number, durationMs = 3000, source: Source = 'user', expectedRevision?: number): Promise<string> {
     const { store, session } = this.need()
+    // Claude's edits are checked against the revision it read, before the (slow) frame extraction
+    const cur = session.state().viewRevision
+    if (expectedRevision !== undefined && expectedRevision !== cur) throw new RevisionMismatch(expectedRevision, cur)
     const view = session.state().view
     const v = view.video.find((x) => x.id === itemId)
     if (!v) throw new Error(`no video clip ${itemId}`)
@@ -104,7 +107,26 @@ export class Editor {
     still.folder = 'Freeze frames'
     session.apply({ type: 'addMedia', items: [still] }, source)
     this.pipeline!.enqueue(still)
-    return session.apply({ type: 'insertFreeze', id: itemId, atMs: Math.round(at), mediaId: still.id, durationMs }, source).summary
+    const cmd = { type: 'insertFreeze', id: itemId, atMs: Math.round(at), mediaId: still.id, durationMs } as const
+    return (source === 'claude' ? session.applyToDraft(cmd, source) : session.apply(cmd, source)).summary
+  }
+
+  /** What Claude sees of a media file: a contact sheet of a video, or the photo itself (≤1568px, Claude's image limit). */
+  async lookAtMedia(mediaId: MediaId, count: number): Promise<{ jpegBase64: string; times: number[] | null }> {
+    const { store, session } = this.need()
+    const m = session.state().view.media.find((x) => x.id === mediaId)
+    if (!m) throw new Error(`no media ${mediaId}`)
+    const dir = join(store.cacheDir, 'look')
+    await mkdir(dir, { recursive: true })
+    if (m.kind === 'image') {
+      const out = join(dir, `${m.id}_photo.jpg`)
+      if (!existsSync(out)) await extractFrame(m, 0, out, 1568)
+      return { jpegBase64: (await readFile(out)).toString('base64'), times: null }
+    }
+    const out = join(dir, `${m.id}_${count}.jpg`)
+    const times = Array.from({ length: count }, (_, i) => Math.round(((i + 0.5) * m.durationMs) / count))
+    if (!existsSync(out)) await contactSheet(m, count, out)
+    return { jpegBase64: (await readFile(out)).toString('base64'), times }
   }
 
   /** A still of `mediaId` at `sourceMs` (cached), e.g. for the crop dialog. */

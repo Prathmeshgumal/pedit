@@ -12,7 +12,7 @@ export class ChatController {
   private stopRequested = false
   private lastDraft: TurnContext['lastDraft'] = null
 
-  constructor(private editor: Editor, private paths: { mcpConfig: () => string; guide: string }, private emit: (e: ChatEvent) => void) {}
+  constructor(private editor: Editor, private paths: { mcpConfig: () => string; guide: string; claude?: () => { model?: string; effort?: string } }, private emit: (e: ChatEvent) => void) {}
 
   status(): Promise<ClaudeStatus> { return this.makeRunner('.').check() }
   get running(): boolean { return this.busy || this.starting || (this.runner?.running ?? false) }
@@ -92,6 +92,6 @@ export class ChatController {
   }
 
   private makeRunner(cwd: string): ClaudeRunner {
-    return new ClaudeRunner({ mcpConfigPath: this.paths.mcpConfig(), guidePath: this.paths.guide, cwd })
+    return new ClaudeRunner({ mcpConfigPath: this.paths.mcpConfig(), guidePath: this.paths.guide, cwd, ...this.paths.claude?.() })
   }
 }

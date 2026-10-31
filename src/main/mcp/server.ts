@@ -4,7 +4,8 @@ import { chmod, rename, writeFile } from 'node:fs/promises'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { EditSession } from '../../shared/session'
-import { registerTools } from './tools'
+import { registerTools, type McpServices } from './tools'
+export type { McpServices } from './tools'
 
 export interface McpHandle { url: string; token: string; port: number; close(): Promise<void>; writeConfig(file: string): Promise<void> }
 
@@ -16,7 +17,7 @@ const readBody = (req: IncomingMessage): Promise<unknown> => new Promise((resolv
 })
 
 /** Local MCP server (127.0.0.1, random port, bearer token) exposing pedit's editor tools. Stateless streamable HTTP. */
-export async function startMcpServer(getSession: () => EditSession | null): Promise<McpHandle> {
+export async function startMcpServer(getSession: () => EditSession | null, services?: McpServices): Promise<McpHandle> {
   const token = randomBytes(32).toString('hex')
   const expected = Buffer.from(`Bearer ${token}`)
   const authorized = (req: IncomingMessage): boolean => {
@@ -30,7 +31,7 @@ export async function startMcpServer(getSession: () => EditSession | null): Prom
     try {
       const body = await readBody(req)
       const server = new McpServer({ name: 'pedit', version: '0.1.0' })
-      registerTools(server, getSession)
+      registerTools(server, getSession, services)
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
       res.on('close', () => { void transport.close(); void server.close() })
       await server.connect(transport)

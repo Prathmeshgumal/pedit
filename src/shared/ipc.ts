@@ -12,7 +12,11 @@ export type ChatEvent =
   | { kind: 'done'; sessionId: string | null; ok: boolean; error?: 'not_installed' | 'not_logged_in' | 'usage_limit' | 'stopped' | 'crashed'; message?: string; usage?: unknown }
 export interface ClaudeStatus { ok: boolean; reason?: string; version?: string }
 /** Tools that only read; the chat shows them dimmed. */
-export const READ_TOOLS: Record<string, string> = { get_timeline: 'looked at the timeline', list_media: 'looked at your media', get_project_settings: 'looked at the settings' }
+export const READ_TOOLS: Record<string, string> = { get_timeline: 'looked at the timeline', list_media: 'looked at your media', get_project_settings: 'looked at the settings', look_at_media: 'looked at a clip' }
+
+export const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'] as const
+export const CLAUDE_EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export interface Settings { claudeModel: (typeof CLAUDE_MODELS)[number]; claudeEffort: (typeof CLAUDE_EFFORTS)[number] }
 
 export interface RecentProject { dir: string; name: string; openedAt: string; exists: boolean }
 /** Actions the app menu asks the window to do (dialogs that live in the renderer). */
@@ -33,6 +37,8 @@ export interface PeditApi {
   removeUnusedMedia(): Promise<number>
   freezeFrame(itemId: ItemId, atMs: number): Promise<void>
   frameImage(mediaId: MediaId, sourceMs: number): Promise<string>
+  getSettings(): Promise<Settings>
+  setSettings(patch: Partial<Settings>): Promise<Settings>
   onMenu(cb: (a: MenuAction) => void): () => void
   pickImport(kind?: 'files' | 'folder'): Promise<string[]>
   importPaths(paths: string[]): Promise<void>
@@ -75,6 +81,8 @@ export const CH = {
   removeUnusedMedia: 'media:removeUnused',
   freezeFrame: 'edit:freeze',
   frameImage: 'media:frame',
+  getSettings: 'settings:get',
+  setSettings: 'settings:set',
   menu: 'app:menu',
   pickImport: 'media:pick',
   importPaths: 'media:import',

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import type { ChatEntry, ClaudeStatus } from '@shared/ipc'
-import { READ_TOOLS } from '@shared/ipc'
+import type { ChatEntry, ClaudeStatus, Settings } from '@shared/ipc'
+import { READ_TOOLS, CLAUDE_MODELS, CLAUDE_EFFORTS } from '@shared/ipc'
 import { errorText, stepText } from '@shared/chat'
 import { useUi } from '../store'
 import { getPlayer } from '../preview/instance'
@@ -104,7 +104,7 @@ export function ChatPanel() {
 
   return (
     <div data-testid="chat" className="panel flex min-h-0 flex-col" style={{ gridRow: '2 / 4', gridColumn: '4' }}>
-      <div className="panel-title">Claude</div>
+      <div className="panel-title flex items-center">Claude<ClaudePicker /></div>
       {status && !status.ok && (
         <div data-testid="claude-banner" className="mb-2 rounded bg-amber-900/50 p-2 text-[11px] text-amber-100">Claude Code was not found. Install it, run `claude` once to log in, then restart pedit.</div>
       )}
@@ -146,5 +146,29 @@ export function ChatPanel() {
         </div>
       </div>
     </div>
+  )
+}
+
+const MODEL_LABEL: Record<Settings['claudeModel'], string> = { default: 'Default model', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' }
+const EFFORT_LABEL: Record<Settings['claudeEffort'], string> = { default: 'Default effort', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+
+/** Which Claude model and how hard it thinks; saved right away, used from the next message. */
+function ClaudePicker() {
+  const [s, setS] = useState<Settings | null>(null)
+  useEffect(() => { void window.pedit.getSettings().then(setS) }, [])
+  if (!s) return null
+  const save = (patch: Partial<Settings>): void => { setS({ ...s, ...patch }); void window.pedit.setSettings(patch).then(setS) }
+  const cls = 'rounded bg-neutral-800 px-1 py-0.5 text-[10px] normal-case tracking-normal text-neutral-300 hover:bg-neutral-700'
+  return (
+    <span className="ml-auto flex gap-1">
+      <select data-testid="claude-model" title="Claude model (applies to your next message)" className={cls} value={s.claudeModel}
+        onChange={(e) => save({ claudeModel: e.target.value as Settings['claudeModel'] })}>
+        {CLAUDE_MODELS.map((m) => <option key={m} value={m}>{MODEL_LABEL[m]}</option>)}
+      </select>
+      <select data-testid="claude-effort" title="How hard Claude thinks (applies to your next message)" className={cls} value={s.claudeEffort}
+        onChange={(e) => save({ claudeEffort: e.target.value as Settings['claudeEffort'] })}>
+        {CLAUDE_EFFORTS.map((m) => <option key={m} value={m}>{EFFORT_LABEL[m]}</option>)}
+      </select>
+    </span>
   )
 }

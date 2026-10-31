@@ -49,6 +49,17 @@ describe('ClaudeRunner', () => {
     expect(r.running).toBe(false)
   }, 30000)
 
+  it('passes the chosen model and effort, and leaves them out on default', async () => {
+    const withChoice = new ClaudeRunner({ bin: FAKE, mcpConfigPath: join(dir, 'mcp.json'), guidePath: resolve('src/main/claude/editor-guide.md'), cwd: dir, model: 'sonnet', effort: 'high' })
+    await collect(withChoice, 'hi')
+    await collect(runner(), 'hi')
+    const [a1, a2] = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as string[])
+    expect(a1.slice(a1.indexOf('--model'), a1.indexOf('--model') + 2)).toEqual(['--model', 'sonnet'])
+    expect(a1.slice(a1.indexOf('--effort'), a1.indexOf('--effort') + 2)).toEqual(['--effort', 'high'])
+    expect(a2).not.toContain('--model')
+    expect(a2).not.toContain('--effort')
+  }, 30000)
+
   it('reports not_logged_in', async () => {
     process.env.FAKE_CLAUDE_MODE = 'not_logged_in'
     expect((await collect(runner(), 'x')).at(-1)).toMatchObject({ kind: 'done', ok: false, error: 'not_logged_in' })

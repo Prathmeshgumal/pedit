@@ -25,7 +25,7 @@ export class ClaudeRunner {
   private stopped = false
   private readonly bin: string
 
-  constructor(private deps: { bin?: string; mcpConfigPath: string; guidePath: string; cwd: string }) {
+  constructor(private deps: { bin?: string; mcpConfigPath: string; guidePath: string; cwd: string; model?: string; effort?: string }) {
     this.bin = deps.bin ?? process.env.PEDIT_CLAUDE_BIN ?? 'claude'
   }
 
@@ -49,6 +49,8 @@ export class ClaudeRunner {
       '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task',
       '--permission-mode', 'default',
       ...(guide ? ['--append-system-prompt', guide] : []),
+      ...(this.deps.model && this.deps.model !== 'default' ? ['--model', this.deps.model] : []),
+      ...(this.deps.effort && this.deps.effort !== 'default' ? ['--effort', this.deps.effort] : []),
       ...(sessionId ? ['--resume', sessionId] : [])]
     this.stopped = false
     let finished = false

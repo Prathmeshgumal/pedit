@@ -56,7 +56,42 @@ describe('pedit MCP server', () => {
   it('lists exactly the editor tools', async () => {
     const c = await connect(h.token)
     const names = (await c.listTools()).tools.map((t) => t.name).sort()
-    expect(names).toEqual(['add_clip', 'add_text', 'get_project_settings', 'get_timeline', 'list_media', 'move_item', 'remove_item', 'set_format', 'set_music', 'set_volume', 'split_item', 'trim_item', 'update_text'])
+    expect(names).toEqual(['add_clip', 'add_text', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_timeline', 'list_media', 'look_at_media',
+      'move_item', 'remove_item', 'replace_clip', 'set_format', 'set_music', 'set_transform', 'set_volume', 'split_item', 'trim_item', 'update_text'])
+  })
+
+  it('extract_audio and set_transform land in the draft', async () => {
+    const c = await connect(h.token)
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 0 } })
+    const x = await c.callTool({ name: 'extract_audio', arguments: { id: 'c_000001', expectedRevision: 1 } }) as R
+    expect(x.isError).toBeFalsy()
+    const t = await c.callTool({ name: 'set_transform', arguments: { id: 'c_000001', rotate: 90, flipH: true, expectedRevision: 2 } }) as R
+    expect(t.isError).toBeFalsy()
+    const v = session.state().view
+    expect(v.audio).toHaveLength(1)
+    expect(v.video[0]).toMatchObject({ volume: 0, transform: { rotate: 90, flipH: true } })
+    expect(session.state().real.audio).toHaveLength(0)
+  })
+
+  it('update_text takes a custom position and rotation; move_item takes a lane', async () => {
+    const c = await connect(h.token)
+    await c.callTool({ name: 'add_text', arguments: { text: 'Hi', startMs: 0, durationMs: 1000, expectedRevision: 0 } })
+    const u = await c.callTool({ name: 'update_text', arguments: { id: 't_000001', style: { position: 'custom', x: 0.25, y: 0.75, rotation: -10 }, expectedRevision: 1 } }) as R
+    expect(u.isError).toBeFalsy()
+    expect(session.state().view.text[0].style).toMatchObject({ position: 'custom', x: 0.25, y: 0.75, rotation: -10 })
+  })
+
+  it('look_at_media returns a picture Claude can see, with the frame times', async () => {
+    await h.close()
+    h = await startMcpServer(() => session, { lookAtMedia: async (mid, count) => ({ jpegBase64: Buffer.from(`jpeg:${mid}:${count}`).toString('base64'), times: [500, 1500] }), freezeFrame: async () => 'froze' })
+    const c = await connect(h.token)
+    const r = await c.callTool({ name: 'look_at_media', arguments: { mediaId: 'm_a', count: 8 } }) as { content: Array<{ type: string; mimeType?: string; data?: string; text?: string }> }
+    const img = r.content.find((x) => x.type === 'image')!
+    expect(img.mimeType).toBe('image/jpeg')
+    expect(Buffer.from(img.data!, 'base64').toString()).toBe('jpeg:m_a:8')
+    expect(r.content.find((x) => x.type === 'text')!.text).toContain('0:00.5')
+    const f = await c.callTool({ name: 'freeze_frame', arguments: { id: 'c_1', atMs: 1000, expectedRevision: 0 } }) as R
+    expect(text(f)).toContain('froze')
   })
 
   it('reads media, edits into a draft, and guards the revision', async () => {
