@@ -41,6 +41,10 @@ describe('ClaudeRunner', () => {
     const [a1, a2] = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as string[])
     for (const f of ['-p', '--output-format', 'stream-json', '--verbose', '--strict-mcp-config', '--allowedTools', 'mcp__pedit__*', '--mcp-config', '--append-system-prompt']) expect(a1).toContain(f)
     expect(a1).not.toContain('--resume')
+    // Claude Code's own file/shell tools are removed, and the user's permission mode can't widen access
+    const dis = a1.slice(a1.indexOf('--disallowedTools') + 1)
+    for (const t of ['Bash', 'Edit', 'Write', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task']) expect(dis).toContain(t)
+    expect(a1.slice(a1.indexOf('--permission-mode'), a1.indexOf('--permission-mode') + 2)).toEqual(['--permission-mode', 'default'])
     expect(a2.slice(a2.indexOf('--resume'), a2.indexOf('--resume') + 2)).toEqual(['--resume', 'fake-1'])
     expect(r.running).toBe(false)
   }, 30000)

@@ -21,6 +21,7 @@ function Rich({ text }: { text: string }) {
 
 function DraftBar() {
   const session = useUi((s) => s.session)
+  const running = useUi((s) => s.chatRunning)
   if (!session?.draftActive || !session.diff) return null
   const d = session.diff
   const fmt = session.view.settings.aspect !== session.real.settings.aspect
@@ -30,8 +31,8 @@ function DraftBar() {
       <div className="mb-1.5 text-violet-100">Draft: {parts.join(', ')}</div>
       <div className="flex gap-1.5">
         <button data-testid="draft-preview" className="btn" onClick={() => { useUi.getState().previewClip(null); const p = getPlayer(); void p?.seek(0).then(() => p.play()) }}>▶ Preview draft</button>
-        <button data-testid="draft-accept" className="rounded bg-emerald-700 px-2 py-0.5 text-white hover:bg-emerald-600" onClick={() => void window.pedit.acceptDraft()}>Accept</button>
-        <button data-testid="draft-reject" className="rounded bg-red-900 px-2 py-0.5 text-white hover:bg-red-800" onClick={() => void window.pedit.rejectDraft()}>Reject</button>
+        <button data-testid="draft-accept" disabled={running} title={running ? 'Wait for Claude to finish (or Stop)' : undefined} className="disabled:opacity-40 rounded bg-emerald-700 px-2 py-0.5 text-white hover:bg-emerald-600" onClick={() => void window.pedit.acceptDraft()}>Accept</button>
+        <button data-testid="draft-reject" disabled={running} title={running ? 'Wait for Claude to finish (or Stop)' : undefined} className="disabled:opacity-40 rounded bg-red-900 px-2 py-0.5 text-white hover:bg-red-800" onClick={() => void window.pedit.rejectDraft()}>Reject</button>
       </div>
     </div>
   )
@@ -41,7 +42,8 @@ export function ChatPanel() {
   const projectId = useUi((s) => s.project?.id)
   const media = useUi((s) => s.project?.media ?? [])
   const [items, setItems] = useState<Item[]>([])
-  const [running, setRunning] = useState(false)
+  const running = useUi((s) => s.chatRunning)
+  const setRunning = useUi((s) => s.setChatRunning)
   const [text, setText] = useState('')
   const [tags, setTags] = useState<Array<{ name: string; mediaId: string }>>([])
   const [status, setStatus] = useState<ClaudeStatus | null>(null)

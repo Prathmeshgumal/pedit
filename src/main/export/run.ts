@@ -28,10 +28,19 @@ export async function runExport(p: Project, o: ExportOptions, deps: ExportDeps):
   const part = `${o.outPath}.part`
   deps.onProgress(0)
   try {
-    await runFfmpeg(buildExportArgs(p, o, pngs, deps.enc), {
+    const encode = (enc: EncoderInfo): Promise<void> => runFfmpeg(buildExportArgs(p, o, pngs, enc), {
       signal: deps.signal,
       onProgress: (ms) => deps.onProgress(Math.min(99, Math.floor((ms / total) * 100)))
     })
+    try {
+      await encode(deps.enc)
+    } catch (e) {
+      // a hardware encoder that can't take this graph (VAAPI/QSV need surface uploads): retry once in software
+      if (deps.signal.aborted || deps.enc.h264 === 'libx264') throw e
+      await rm(part, { force: true })
+      deps.onProgress(0)
+      await encode({ ...deps.enc, h264: 'libx264' })
+    }
     if (deps.signal.aborted) throw new Error('Export cancelled')
     await rename(part, o.outPath)
     deps.onProgress(100)

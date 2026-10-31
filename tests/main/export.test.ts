@@ -81,6 +81,15 @@ describe('runExport', () => {
     expect(diff(ref(true))).toBeGreaterThan(diff(ref(false)) * 2)
   }, 180000)
 
+  it('falls back to libx264 when the hardware encoder fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const p = await reel(); p.video = [p.video[1]]; p.video[0].startMs = 0; p.text = []; p.audio = []
+    const out = join(dir, 'fb.mp4')
+    await runExport(p, { aspect: '16:9', resolution: 1080, fps: 30, quality: 'standard', outPath: out },
+      { renderTextPngs: async () => ({}), enc: { h264: 'h264_vaapi', hevc: null, hwaccel: [] }, onProgress: () => {}, signal: new AbortController().signal })
+    expect(probeJson(out).streams.find((s) => s.codec_type === 'video')!.codec_name).toBe('h264')
+  }, 120000)
+
   it('refuses offline media and names the file', async () => {
     const p = await reel(); p.media[1].status = 'offline'
     const o: ExportOptions = { aspect: '16:9', resolution: 1080, fps: 30, quality: 'standard', outPath: join(tmpdir(), 'never.mp4') }

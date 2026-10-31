@@ -25,7 +25,8 @@ export function resolveFps(p: Project, o: ExportOptions): number {
 }
 
 export function missingMedia(p: Project): MediaItem[] {
-  return usedMedia(p).filter((m) => m.status === 'offline' || m.status === 'error')
+  // 'error' only means a preview/thumbnail build failed; export reads the original file, so only offline blocks it
+  return usedMedia(p).filter((m) => m.status === 'offline')
 }
 
 const sec = (ms: number): string => String(Math.round(ms) / 1000)
@@ -67,15 +68,19 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
   fc.push(`[${vLabel}]format=yuv420p[vout]`)
 
   let aLabel = 'ca'
-  const music = p.audio[0]
-  if (music && music.startMs < total) {
-    const m = p.media.find((x) => x.id === music.mediaId)!
-    const len = Math.min(music.outMs - music.inMs, total - music.startMs)
-    args.push('-ss', sec(music.inMs), '-t', sec(len), '-i', m.path)
-    fc.push(`[${n}:a]${AFMT},volume=${music.volume},adelay=${Math.round(music.startMs)}:all=1[mus]`)
-    fc.push(`[ca][mus]amix=inputs=2:duration=first:normalize=0[amix]`)
-    aLabel = 'amix'
+  const music = p.audio.filter((a) => a.startMs < total)
+  const musLabels: string[] = []
+  for (const [k, a] of music.entries()) {
+    const m = p.media.find((x) => x.id === a.mediaId)!
+    const len = Math.min(a.outMs - a.inMs, total - a.startMs)
+    args.push('-ss', sec(a.inMs), '-t', sec(len), '-i', m.path)
+    fc.push(`[${n}:a]${AFMT},volume=${a.volume},adelay=${Math.round(a.startMs)}:all=1[mus${k}]`)
+    musLabels.push(`[mus${k}]`)
     n++
+  }
+  if (musLabels.length) {
+    fc.push(`[ca]${musLabels.join('')}amix=inputs=${musLabels.length + 1}:duration=first:normalize=0[amix]`)
+    aLabel = 'amix'
   }
 
   args.push('-filter_complex', fc.join(';'), '-map', '[vout]', '-map', `[${aLabel}]`)

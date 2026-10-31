@@ -58,8 +58,24 @@ describe('export graph', () => {
     expect(args).toContain('-crf'); expect(args[args.indexOf('-crf') + 1]).toBe('16')
     expect(fc).toContain('crop=2160:3840')
   })
-  it('lists offline media used on the timeline', () => {
+  it('lists offline media used on the timeline, but not media whose preview build failed', () => {
     const p = project(); p.media[1].status = 'offline'
     expect(missingMedia(p).map((x) => x.name)).toEqual(['uni.mov'])
+    p.media[1].status = 'error'
+    expect(missingMedia(p)).toEqual([])
+  })
+  it('mixes every music item after a split, each at its own time', () => {
+    const p = project()
+    p.media.push(m('mus', { kind: 'audio', width: 0, height: 0, fps: 0 }))
+    p.audio = [
+      { id: 'a1', mediaId: 'mus', startMs: 0, inMs: 0, outMs: 2000, volume: 1 },
+      { id: 'a2', mediaId: 'mus', startMs: 3000, inMs: 2000, outMs: 4000, volume: 0.5 }
+    ]
+    const args = buildExportArgs(p, O, {}, NV)
+    const fc = args[args.indexOf('-filter_complex') + 1]
+    expect(count(fc, 'adelay=')).toBe(2)
+    expect(fc).toContain('adelay=3000:all=1')
+    expect(fc).toContain('amix=inputs=3:duration=first:normalize=0')
+    expect(args.filter((a) => a === '/v/mus.mov')).toHaveLength(2)
   })
 })

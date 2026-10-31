@@ -7,7 +7,7 @@ import type { MediaItem, MediaId } from '@shared/model'
 import { seqIds } from '@shared/ids'
 import { proxyArgs, MediaPipeline, importPaths } from '../../src/main/media/jobs'
 import { parseRange } from '../../src/main/media/protocol'
-import { detectEncoders, ffprobePath, type EncoderInfo } from '../../src/main/media/ffmpeg'
+import { detectEncoders, ffprobePath, ffmpegPath as ffmpegPathForTest, type EncoderInfo } from '../../src/main/media/ffmpeg'
 import { probe } from '../../src/main/media/probe'
 import { FIX, f } from './fixtures'
 
@@ -94,6 +94,12 @@ describe('MediaPipeline', () => {
 })
 
 describe('importPaths', () => {
+  it('skips still images (not supported on the timeline in v0.1)', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'pedit-img-'))
+    execFileSync(ffmpegPathForTest(), ['-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=64x64', '-frames:v', '1', join(d, 'photo.jpg')])
+    expect(await importPaths([d], [], seqIds())).toEqual([])
+    expect(await importPaths([join(d, 'photo.jpg')], [], seqIds())).toEqual([])
+  })
   it('expands folders, probes media and records folder names', async () => {
     const items = await importPaths([FIX], [], seqIds())
     expect(items).toHaveLength(6)

@@ -36,7 +36,12 @@ function Tile({ m }: { m: MediaItem }) {
             <button className="btn" onClick={(e) => { e.stopPropagation(); void window.pedit.relinkMedia(m.id) }}>Locate…</button>
           </div>
         )}
-        {m.status === 'error' && <div className="absolute inset-0 flex items-center justify-center bg-black/75 p-1 text-center text-[10px] text-red-300" title={m.error}>Couldn't prepare</div>}
+        {m.status === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/75 p-1 text-center text-[10px] text-red-300" title={m.error}>
+            Couldn't prepare preview
+            <button className="btn" onClick={(e) => { e.stopPropagation(); void window.pedit.relinkMedia(m.id) }}>Locate / retry…</button>
+          </div>
+        )}
       </div>
       <div className="truncate px-1.5 py-1 text-[11px]">{m.name}</div>
       {working && (

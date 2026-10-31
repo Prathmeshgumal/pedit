@@ -45,6 +45,9 @@ export class ClaudeRunner {
     const args = ['-p', '--output-format', 'stream-json', '--verbose',
       '--mcp-config', this.deps.mcpConfigPath, '--strict-mcp-config',
       '--allowedTools', 'mcp__pedit__*',
+      // Claude only edits through pedit's tools: no shell, no file access, no web, whatever the user's own settings allow
+      '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task',
+      '--permission-mode', 'default',
       ...(guide ? ['--append-system-prompt', guide] : []),
       ...(sessionId ? ['--resume', sessionId] : [])]
     this.stopped = false

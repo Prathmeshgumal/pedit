@@ -17,6 +17,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let prompt = ''
 if (!process.stdin.isTTY) for await (const c of process.stdin) prompt += c
 
+if (process.env.FAKE_CLAUDE_FAIL_RESUME && flag('--resume')) {
+  process.stderr.write(`No conversation found with session ID: ${flag('--resume')}\n`)
+  process.exit(1)
+}
+
 out({ type: 'system', subtype: 'init', session_id: sessionId, tools: [], mcp_servers: [{ name: 'pedit', status: 'connected' }] })
 
 if (mode === 'not_logged_in') {

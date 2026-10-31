@@ -41,6 +41,8 @@ export class EditSession {
   private real: Project
   private draft: Project | null = null
   private draftRev = 0
+  /** Last revision handed out; real and draft share it so a number never names two different timelines. */
+  private rev: number
   private undoStack: Snap[] = []
   private redoStack: Snap[] = []
   private draftUndo: Snap[] = []
@@ -50,7 +52,10 @@ export class EditSession {
 
   constructor(project: Project, private ids: IdGen = randomIds) {
     this.real = structuredClone(project)
+    this.rev = project.revision
   }
+
+  private bump(): number { return ++this.rev }
 
   state(): SessionState {
     const draftActive = this.draft !== null
@@ -80,7 +85,7 @@ export class EditSession {
       this.draftUndo.push(snap(this.draft))
       this.draftRedo = []
       this.draft = r.project
-      this.draftRev++
+      this.draftRev = this.bump()
       if (source === 'user') this.userEdits.push(r.summary)
       this.emit()
       return r
@@ -88,7 +93,7 @@ export class EditSession {
     const r = applyCommand(this.real, cmd, this.ids)
     this.undoStack.push(snap(this.real))
     this.redoStack = []
-    this.real = { ...r.project, revision: this.real.revision + 1 }
+    this.real = { ...r.project, revision: this.bump() }
     this.emit()
     return { ...r, project: this.real }
   }
@@ -103,13 +108,13 @@ export class EditSession {
       if (!s) return
       to.push(snap(this.draft))
       this.draft = restore(this.draft, s)
-      this.draftRev++
+      this.draftRev = this.bump()
     } else {
       const [from, to] = undo ? [this.undoStack, this.redoStack] : [this.redoStack, this.undoStack]
       const s = from.pop()
       if (!s) return
       to.push(snap(this.real))
-      this.real = { ...restore(this.real, s), revision: this.real.revision + 1 }
+      this.real = { ...restore(this.real, s), revision: this.bump() }
     }
     this.emit()
   }
@@ -128,7 +133,7 @@ export class EditSession {
     if (!this.draft) return
     this.undoStack.push(snap(this.real))
     this.redoStack = []
-    this.real = { ...restore(this.real, snap(this.draft)), revision: this.real.revision + 1 }
+    this.real = { ...restore(this.real, snap(this.draft)), revision: this.bump() }
     this.draft = null
     this.emit()
   }

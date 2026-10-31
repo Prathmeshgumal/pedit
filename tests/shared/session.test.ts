@@ -44,7 +44,7 @@ describe('EditSession', () => {
     s.apply({ type: 'addClip', mediaId: 'm_b' }, 'claude')
     s.acceptDraft()
     expect(s.state()).toMatchObject({ draftActive: false, diff: null })
-    expect(s.state().real.revision).toBe(1)
+    expect(s.state().real.revision).toBeGreaterThan(0) // shared counter: draft edits used numbers too
     expect(s.state().real.video).toHaveLength(2)
     s.undo()
     expect(s.state().real.video).toHaveLength(0)
@@ -88,5 +88,18 @@ describe('EditSession', () => {
     off()
     s.undo()
     expect(n).toBe(1)
+  })
+
+  it('never reuses a revision number across draft and real timelines', () => {
+    const s = fresh()
+    const seen = new Set<number>([s.state().viewRevision])
+    s.startDraft()
+    s.apply({ type: 'addClip', mediaId: 'm_a' }, 'claude')
+    seen.add(s.state().viewRevision)
+    s.rejectDraft()
+    s.apply({ type: 'addClip', mediaId: 'm_b' }, 'user')
+    expect(seen.has(s.state().viewRevision)).toBe(false)
+    // and a stale draft revision is refused against the new real timeline
+    expect(() => s.apply({ type: 'addClip', mediaId: 'm_a' }, 'claude', 1)).toThrow(RevisionMismatch)
   })
 })

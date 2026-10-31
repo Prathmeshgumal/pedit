@@ -64,11 +64,15 @@ test('stop keeps the partial draft; login problems show a hint', async () => {
   await say(win, 'slowly')
   await expect(win.locator('[data-testid=chat-input]')).toBeDisabled()
   await expect(win.locator('[data-testid=chat-step]').filter({ hasText: '✓ added' })).toHaveCount(1, { timeout: 15000 })
-  // the clip is in the draft; stop while the fake sleeps before its next edit
+  // the clip is in the draft; accept/reject wait until Claude is done
+  await expect(win.locator('[data-testid=draft-accept]')).toBeDisabled()
+  await expect(win.locator('[data-testid=draft-reject]')).toBeDisabled()
+  // stop while the fake sleeps before its next edit
   await win.locator('[data-testid=chat-stop]').click()
   await expect(win.locator('[data-testid=chat-msg-system]')).toContainText('Stopped', { timeout: 5000 })
   await expect(win.locator('[data-testid=chat-input]')).toBeEnabled()
   expect((await state(win)).draftActive).toBe(true)
+  await expect(win.locator('[data-testid=draft-accept]')).toBeEnabled()
   await app.close()
 
   app = await open(dir, 'not_logged_in')

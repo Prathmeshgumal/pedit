@@ -36,16 +36,16 @@ function rememberProject(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle(CH.newProject, async (_e, dir: string, name: string) => { await editor.newProject(dir, name); chat.resetProject(); rememberProject() })
-  ipcMain.handle(CH.openProject, async (_e, dir: string) => { await editor.openProject(dir); chat.resetProject(); rememberProject() })
+  ipcMain.handle(CH.newProject, async (_e, dir: string, name: string) => { await chat.stopAndWait(); await editor.newProject(dir, name); chat.resetProject(); rememberProject() })
+  ipcMain.handle(CH.openProject, async (_e, dir: string) => { await chat.stopAndWait(); await editor.openProject(dir); chat.resetProject(); rememberProject() })
   ipcMain.handle(CH.getState, () => editor.state())
   ipcMain.handle(CH.edit, (_e, cmd) => {
     try { return { ok: true, summary: editor.apply(cmd) } } catch (err) { return { ok: false, error: (err as Error).message } }
   })
   ipcMain.handle(CH.undo, () => editor.session?.undo())
   ipcMain.handle(CH.redo, () => editor.session?.redo())
-  ipcMain.handle(CH.acceptDraft, () => { if (editor.session?.state().draftActive) { editor.session.acceptDraft(); chat.noteDraftOutcome('accepted') } })
-  ipcMain.handle(CH.rejectDraft, () => { if (editor.session?.state().draftActive) { editor.session.rejectDraft(); chat.noteDraftOutcome('rejected') } })
+  ipcMain.handle(CH.acceptDraft, () => { if (!chat.running && editor.session?.state().draftActive) { editor.session.acceptDraft(); chat.noteDraftOutcome('accepted') } })
+  ipcMain.handle(CH.rejectDraft, () => { if (!chat.running && editor.session?.state().draftActive) { editor.session.rejectDraft(); chat.noteDraftOutcome('rejected') } })
   ipcMain.handle(CH.sendChat, (_e, text: string, tags: Array<{ name: string; mediaId: string }>) => chat.send(text, tags))
   ipcMain.on(CH.stopChat, () => chat.stop())
   ipcMain.handle(CH.chatHistory, () => chat.history())

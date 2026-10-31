@@ -126,7 +126,7 @@ export class MediaPipeline {
 }
 
 const MEDIA_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mts', '.m2ts', '.3gp', '.insv',
-  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.jpg', '.jpeg', '.png', '.webp', '.heic'])
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus'])  // still images: not placeable on the timeline in v0.1
 
 async function walk(dir: string, out: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true })
@@ -170,7 +170,7 @@ export async function importPaths(paths: string[], existingMedia: MediaItem[], i
   })
   const items: MediaItem[] = []
   for (const r of probed) {
-    if (!r) continue
+    if (!r || r.info.kind === 'image') continue
     items.push({ ...r.info, id: ids('m'), folder: r.x.folder, importIndex: next++, status: 'processing' })
   }
   return items

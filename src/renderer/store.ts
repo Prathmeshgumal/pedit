@@ -14,6 +14,8 @@ interface UiState {
   selectedItemId: ItemId | null
   clipPreviewId: MediaId | null
   toast: string | null
+  chatRunning: boolean
+  setChatRunning(v: boolean): void
   selectItem(id: ItemId | null): void
   previewClip(id: MediaId | null): void
   showToast(msg: string): void
@@ -31,6 +33,8 @@ export const useUi = create<UiState>((set) => ({
   selectedItemId: null,
   clipPreviewId: null,
   toast: null,
+  chatRunning: false,
+  setChatRunning: (chatRunning) => set({ chatRunning }),
   selectItem: (selectedItemId) => set({ selectedItemId }),
   previewClip: (clipPreviewId) => set({ clipPreviewId }),
   showToast: (toast) => { set({ toast }); setTimeout(() => { if (useUi.getState().toast === toast) set({ toast: null }) }, 1500) },
