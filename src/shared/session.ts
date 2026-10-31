@@ -16,10 +16,12 @@ export class RevisionMismatch extends Error {
   }
 }
 
-/** Timeline-only snapshot: undo never reverts media (imports, proxy status). */
-type Snap = Pick<Project, 'settings' | 'video' | 'text' | 'audio'>
-const snap = (p: Project): Snap => structuredClone({ settings: p.settings, video: p.video, text: p.text, audio: p.audio })
-const restore = (p: Project, s: Snap): Project => ({ ...p, ...structuredClone(s) })
+/**
+ * Timeline snapshot. Undo never reverts imports or preview-building progress, so media is not snapshotted;
+ * only which media ids existed, so media removed by a command (kept in the session's graveyard) can come back.
+ */
+type Snap = Pick<Project, 'settings' | 'video' | 'text' | 'audio'> & { mediaIds: string[] }
+const snap = (p: Project): Snap => ({ ...structuredClone({ settings: p.settings, video: p.video, text: p.text, audio: p.audio }), mediaIds: p.media.map((m) => m.id) })
 const isMediaCmd = (c: Command): boolean => c.type === 'addMedia' || c.type === 'updateMedia'
 
 function diff(real: Project, draft: Project): DraftDiff {
@@ -49,6 +51,21 @@ export class EditSession {
   private draftRedo: Snap[] = []
   private userEdits: string[] = []
   private listeners = new Set<(s: SessionState) => void>()
+  /** Media removed by commands, so undo can bring it back. */
+  private graveyard = new Map<string, Project['media'][number]>()
+
+  private restore(p: Project, s: Snap): Project {
+    const { mediaIds, ...timeline } = structuredClone(s)
+    const want = new Set(mediaIds)
+    const media = p.media.filter((m) => want.has(m.id) || !this.graveyard.has(m.id))
+    for (const id of mediaIds) if (!media.some((m) => m.id === id) && this.graveyard.has(id)) media.push(structuredClone(this.graveyard.get(id)!))
+    return { ...p, ...timeline, media }
+  }
+
+  private bury(before: Project, after: Project): void {
+    const kept = new Set(after.media.map((m) => m.id))
+    for (const m of before.media) if (!kept.has(m.id)) this.graveyard.set(m.id, structuredClone(m))
+  }
 
   constructor(project: Project, private ids: IdGen = randomIds) {
     this.real = structuredClone(project)
@@ -74,7 +91,11 @@ export class EditSession {
     if (isMediaCmd(cmd)) {
       const r = applyCommand(this.real, cmd, this.ids)
       this.real = { ...r.project, revision: this.real.revision }
-      if (this.draft) this.draft = { ...this.draft, media: structuredClone(this.real.media) }
+      if (this.draft) {
+        // keep the draft's library in step with imports and progress, minus what the draft removed
+        const inDraft = new Set(this.draft.media.map((m) => m.id))
+        this.draft = { ...this.draft, media: structuredClone(this.real.media.filter((m) => inDraft.has(m.id) || !this.graveyard.has(m.id))) }
+      }
       this.emit()
       return { ...r, project: this.state().view }
     }
@@ -82,6 +103,7 @@ export class EditSession {
     if (expectedRevision !== undefined && expectedRevision !== current) throw new RevisionMismatch(expectedRevision, current)
     if (this.draft) {
       const r = applyCommand(this.draft, cmd, this.ids)
+      this.bury(this.draft, r.project)
       this.draftUndo.push(snap(this.draft))
       this.draftRedo = []
       this.draft = r.project
@@ -91,6 +113,7 @@ export class EditSession {
       return r
     }
     const r = applyCommand(this.real, cmd, this.ids)
+    this.bury(this.real, r.project)
     this.undoStack.push(snap(this.real))
     this.redoStack = []
     this.real = { ...r.project, revision: this.bump() }
@@ -104,6 +127,7 @@ export class EditSession {
     const current = this.real.revision
     if (expectedRevision !== undefined && expectedRevision !== current) throw new RevisionMismatch(expectedRevision, current)
     const r = applyCommand(this.real, cmd, this.ids) // throws before any draft exists
+    this.bury(this.real, r.project)
     this.draft = structuredClone(this.real)
     this.draftUndo = [snap(this.draft)]
     this.draftRedo = []
@@ -122,14 +146,14 @@ export class EditSession {
       const s = from.pop()
       if (!s) return
       to.push(snap(this.draft))
-      this.draft = restore(this.draft, s)
+      this.draft = this.restore(this.draft, s)
       this.draftRev = this.bump()
     } else {
       const [from, to] = undo ? [this.undoStack, this.redoStack] : [this.redoStack, this.undoStack]
       const s = from.pop()
       if (!s) return
       to.push(snap(this.real))
-      this.real = { ...restore(this.real, s), revision: this.bump() }
+      this.real = { ...this.restore(this.real, s), revision: this.bump() }
     }
     this.emit()
   }
@@ -148,7 +172,7 @@ export class EditSession {
     if (!this.draft) return
     this.undoStack.push(snap(this.real))
     this.redoStack = []
-    this.real = { ...restore(this.real, snap(this.draft)), revision: this.bump() }
+    this.real = { ...this.restore(this.real, snap(this.draft)), revision: this.bump() }
     this.draft = null
     this.emit()
   }
@@ -156,6 +180,13 @@ export class EditSession {
   rejectDraft(): void {
     if (!this.draft) return
     this.draft = null
+    this.emit()
+  }
+
+  /** Project name lives outside undo history. */
+  renameProject(name: string): void {
+    this.real = { ...this.real, name }
+    if (this.draft) this.draft = { ...this.draft, name }
     this.emit()
   }
 

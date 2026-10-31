@@ -1,12 +1,23 @@
+import { useEffect, useState } from 'react'
+import type { RecentProject } from '@shared/ipc'
+import { useUi } from './store'
+import { openMenu } from './ContextMenu'
+
+const fail = (e: Error): void => useUi.getState().showToast(e.message)
+
 export function Welcome() {
+  const [recent, setRecent] = useState<RecentProject[]>([])
+  const load = (): void => void window.pedit.recentProjects().then(setRecent)
+  useEffect(load, [])
   const create = async (): Promise<void> => {
     const dir = await window.pedit.pickProjectDir('new')
-    if (dir) await window.pedit.newProject(dir, dir.split(/[\\/]/).pop()!.replace(/\.pedit$/, ''))
+    if (dir) await window.pedit.newProject(dir, dir.split(/[\\/]/).pop()!.replace(/\.pedit$/, '')).catch(fail)
   }
-  const open = async (): Promise<void> => {
-    const dir = await window.pedit.pickProjectDir('open')
-    if (dir) await window.pedit.openProject(dir).catch((e: Error) => alert(e.message))
+  const open = async (dir?: string | null): Promise<void> => {
+    dir ??= await window.pedit.pickProjectDir('open')
+    if (dir) await window.pedit.openProject(dir).catch(fail)
   }
+  const forget = async (dir: string): Promise<void> => { await window.pedit.forgetRecent(dir); load() }
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4">
       <div className="text-2xl font-semibold">pedit</div>
@@ -15,6 +26,24 @@ export function Welcome() {
         <button className="btn-primary" onClick={() => void create()}>New project</button>
         <button className="btn" onClick={() => void open()}>Open project</button>
       </div>
+      {recent.length > 0 && (
+        <div className="mt-6 w-[480px]">
+          <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Recent projects</div>
+          <div className="flex flex-col gap-1">
+            {recent.map((r) => (
+              <button key={r.dir} data-testid="recent-project" disabled={!r.exists}
+                className="flex items-baseline gap-3 rounded-md bg-neutral-800/70 px-3 py-2 text-left hover:bg-neutral-700 disabled:opacity-50"
+                title={r.exists ? r.dir : `${r.dir} (not found)`}
+                onClick={() => void open(r.dir)}
+                onContextMenu={(e) => openMenu(e, [{ label: 'Remove from list', onClick: () => void forget(r.dir) }])}>
+                <span className="text-sm text-neutral-100">{r.name}</span>
+                <span className="truncate text-[11px] text-neutral-500">{r.exists ? r.dir : 'missing — right-click to remove'}</span>
+                <span className="ml-auto shrink-0 text-[11px] text-neutral-500">{new Date(r.openedAt).toLocaleDateString()}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

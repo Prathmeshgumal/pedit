@@ -56,6 +56,33 @@ export class Editor {
     if (m) this.pipeline!.enqueue(m)
   }
 
+  /** Close the open project (after saving) and go back to the start screen. */
+  async close(): Promise<void> {
+    await this.flush()
+    this.pipeline?.cancelAll()
+    this.offSession?.()
+    this.offSession = null
+    this.pipeline = null
+    this.store = null
+    this.session = null
+    this.out.state(null)
+  }
+
+  async rename(name: string): Promise<void> {
+    const { store, session } = this.need()
+    await this.flush()
+    await store.rename(name)
+    // the session owns the live project: rename it there too so the next save keeps it
+    session.renameProject(store.project.name)
+  }
+
+  /** Media not used anywhere on the timeline (real or draft). */
+  unusedMedia(): MediaId[] {
+    const st = this.need().session.state()
+    const used = new Set([...st.real.video, ...st.real.audio, ...st.view.video, ...st.view.audio].map((i) => i.mediaId))
+    return st.real.media.filter((m) => !used.has(m.id)).map((m) => m.id)
+  }
+
   select(id: MediaId | null): void { if (id) this.pipeline?.prioritize([id]) }
 
   async flush(): Promise<void> {

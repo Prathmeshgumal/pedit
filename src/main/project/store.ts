@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { appendFile, copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { emptyProject, type MediaId, type Project } from '../../shared/model'
 import { applyCommand } from '../../shared/commands'
 import { randomIds } from '../../shared/ids'
@@ -69,6 +69,21 @@ export class ProjectStore {
   async setClaudeSessionId(id: string): Promise<void> {
     this.claudeSessionId = id
     await writeAtomic(this.sessionFile, JSON.stringify({ claudeSessionId: id }))
+  }
+
+  async rename(name: string): Promise<void> {
+    if (!name.trim()) throw new Error('a project needs a name')
+    await this.save({ ...this.project, name: name.trim() })
+  }
+
+  /** Copy the edit and chat to a new project folder (no cache, no Claude session); the copy gets its own id. */
+  async saveCopy(dest: string): Promise<void> {
+    if (existsSync(join(dest, 'project.json'))) throw new Error(`a project already exists at ${dest}`)
+    await mkdir(join(dest, 'cache'), { recursive: true })
+    const name = basename(dest).replace(/\.pedit$/, '')
+    const fresh = emptyProject(name)
+    await writeAtomic(join(dest, 'project.json'), JSON.stringify({ ...this.project, id: fresh.id, name, media: this.project.media.map(({ proxyPath, thumbPath, filmstripPath, waveformPath, ...m }) => ({ ...m, status: m.status === 'offline' ? 'offline' : 'processing' })) }, null, 2))
+    if (existsSync(this.chatFile)) await copyFile(this.chatFile, join(dest, 'chat.jsonl'))
   }
 
   async relink(mediaId: MediaId, newPath: string): Promise<void> {

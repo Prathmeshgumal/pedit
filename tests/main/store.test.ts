@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, existsSync, readdirSync, copyFileSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, existsSync, readdirSync, copyFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProjectStore } from '../../src/main/project/store'
@@ -57,6 +57,25 @@ describe('ProjectStore', () => {
     const o = await ProjectStore.open(dir)
     expect((await o.readChat()).map((e) => e.text)).toEqual(['hi', 'hello'])
     expect(o.claudeSessionId).toBe('sess-1')
+  })
+
+  it('renames a project and saves a copy without the cache or Claude session', async () => {
+    const base = tmp()
+    const s = await ProjectStore.create(join(base, 'A.pedit'), 'A')
+    await s.appendChat({ at: '2026-11-01T10:00:00Z', role: 'user', text: 'hi' })
+    await s.setClaudeSessionId('sess-1')
+    writeFileSync(join(s.cacheDir, 'big.proxy.mp4'), 'x')
+    await s.rename('Kedarnath')
+    expect((await ProjectStore.open(join(base, 'A.pedit'))).project.name).toBe('Kedarnath')
+    const copyDir = join(base, 'B.pedit')
+    await s.saveCopy(copyDir)
+    const c = await ProjectStore.open(copyDir)
+    expect(c.project.name).toBe('B')
+    expect(c.project.id).not.toBe(s.project.id)
+    expect((await c.readChat()).map((e) => e.text)).toEqual(['hi'])
+    expect(c.claudeSessionId).toBeNull()
+    expect(existsSync(join(copyDir, 'cache', 'big.proxy.mp4'))).toBe(false)
+    await expect(s.saveCopy(copyDir)).rejects.toThrow(/already exists/)
   })
 
   it('refuses to open a folder that is not a project', async () => {

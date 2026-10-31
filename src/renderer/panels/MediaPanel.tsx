@@ -1,8 +1,40 @@
-import { useMemo, useState, type DragEvent } from 'react'
+import { useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { MediaItem } from '@shared/model'
 import { mediaUrl } from '@shared/mediaUrl'
 import { edit, fmtDur, useUi } from '../store'
 import { getPlayer } from '../preview/instance'
+import { openMenu, confirmDialog } from '../ContextMenu'
+
+/** Remove a media file from the project, asking first when the timeline uses it. */
+export async function removeMedia(m: MediaItem): Promise<void> {
+  const r = await window.pedit.removeMedia(m.id)
+  if (r.ok) return
+  if ('inUse' in r) {
+    const n = r.inUse
+    if (!(await confirmDialog(`Remove ${m.name}?`, { detail: `Used ${n} time${n === 1 ? '' : 's'} on the timeline. Those clips will be removed too. You can undo this.`, ok: 'Remove' }))) return
+    const f = await window.pedit.removeMedia(m.id, true)
+    if (!f.ok && 'error' in f) useUi.getState().showToast(f.error)
+  } else useUi.getState().showToast(r.error)
+}
+
+function addToTimeline(m: MediaItem): void {
+  const p = useUi.getState().project
+  if (m.kind === 'audio') {
+    if (!p?.audio.some((a) => (a.lane ?? 0) === 0)) void edit({ type: 'setMusic', mediaId: m.id })
+    else void edit({ type: 'addAudio', mediaId: m.id, startMs: 0, lane: Math.max(...p.audio.map((a) => a.lane ?? 0)) + 1 })
+  } else void edit({ type: 'addClip', mediaId: m.id })
+}
+
+function tileMenu(e: MouseEvent, m: MediaItem): void {
+  useUi.getState().selectMedia(m.id)
+  openMenu(e, [
+    { label: 'Preview', onClick: () => useUi.getState().previewClip(m.id), disabled: m.status !== 'ready' && m.kind !== 'audio' },
+    { label: 'Add to timeline', onClick: () => addToTimeline(m) },
+    { label: 'Show in folder', onClick: () => window.pedit.revealFile(m.path) },
+    { label: 'Locate file…', onClick: () => void window.pedit.relinkMedia(m.id) },
+    { label: 'Remove from project', danger: true, onClick: () => void removeMedia(m) }
+  ])
+}
 
 const STAGE_LABEL = { thumb: 'thumbnail', filmstrip: 'filmstrip', waveform: 'waveform', proxy: 'preview copy' } as const
 
@@ -22,7 +54,7 @@ function Tile({ m }: { m: MediaItem }) {
     <div
       data-testid="media-tile" data-status={m.status} data-selected={selected ? 'true' : 'false'} data-media-id={m.id}
       draggable onDragStart={(e) => e.dataTransfer.setData('application/x-pedit-media', m.id)}
-      onClick={() => select(m.id)} onDoubleClick={() => useUi.getState().previewClip(m.id)}
+      onClick={() => select(m.id)} onContextMenu={(e) => tileMenu(e, m)} onDoubleClick={() => useUi.getState().previewClip(m.id)}
       className={`group relative cursor-pointer overflow-hidden rounded-md bg-neutral-800 ${selected ? 'ring-2 ring-sky-400' : 'hover:ring-1 hover:ring-neutral-500'}`}
       title={m.path}
     >
@@ -90,6 +122,13 @@ export function MediaPanel() {
       <div className="flex gap-1.5 p-2">
         <button className="btn flex-1" onClick={() => void pick('files')}>＋ Import files</button>
         <button className="btn flex-1" onClick={() => void pick('folder')}>＋ Folder</button>
+        <button data-testid="media-more" className="btn" title="More" onClick={(e) => openMenu(e, [
+          { label: 'Remove unused media', onClick: async () => {
+            if (!(await confirmDialog('Remove all media not used on the timeline?', { detail: 'Your files on disk are not touched. You can undo this.', ok: 'Remove' }))) return
+            const n = await window.pedit.removeUnusedMedia()
+            useUi.getState().showToast(n ? `Removed ${n} unused file${n === 1 ? '' : 's'}` : 'Nothing unused to remove')
+          } }
+        ])}>⋯</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {tab === 'text' && (

@@ -14,12 +14,24 @@ export interface ClaudeStatus { ok: boolean; reason?: string; version?: string }
 /** Tools that only read; the chat shows them dimmed. */
 export const READ_TOOLS: Record<string, string> = { get_timeline: 'looked at the timeline', list_media: 'looked at your media', get_project_settings: 'looked at the settings' }
 
+export interface RecentProject { dir: string; name: string; openedAt: string; exists: boolean }
+/** Actions the app menu asks the window to do (dialogs that live in the renderer). */
+export type MenuAction = 'import' | 'export' | 'rename' | 'zoomIn' | 'zoomOut' | 'fullscreenPreview'
+
 export type ProgressStage = 'thumb' | 'filmstrip' | 'waveform' | 'proxy'
 
 export interface PeditApi {
   newProject(dir: string, name: string): Promise<void>
   openProject(dir: string): Promise<void>
   pickProjectDir(mode: 'new' | 'open'): Promise<string | null>
+  recentProjects(): Promise<RecentProject[]>
+  forgetRecent(dir: string): Promise<void>
+  closeProject(): Promise<void>
+  renameProject(name: string): Promise<void>
+  saveProjectCopy(): Promise<string | null>
+  removeMedia(id: MediaId, force?: boolean): Promise<{ ok: true } | { ok: false; inUse: number } | { ok: false; error: string }>
+  removeUnusedMedia(): Promise<number>
+  onMenu(cb: (a: MenuAction) => void): () => void
   pickImport(kind?: 'files' | 'folder'): Promise<string[]>
   importPaths(paths: string[]): Promise<void>
   relinkMedia(id: MediaId): Promise<void>
@@ -52,6 +64,14 @@ export const CH = {
   newProject: 'project:new',
   openProject: 'project:open',
   pickProjectDir: 'project:pick',
+  recentProjects: 'project:recent',
+  forgetRecent: 'project:forget',
+  closeProject: 'project:close',
+  renameProject: 'project:rename',
+  saveProjectCopy: 'project:copy',
+  removeMedia: 'media:remove',
+  removeUnusedMedia: 'media:removeUnused',
+  menu: 'app:menu',
   pickImport: 'media:pick',
   importPaths: 'media:import',
   relinkMedia: 'media:relink',

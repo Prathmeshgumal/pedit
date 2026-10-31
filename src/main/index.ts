@@ -4,7 +4,10 @@ import { detectEncoders, ffmpegPath } from './media/ffmpeg'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { CH } from '../shared/ipc'
+import { CH, type MenuAction } from '../shared/ipc'
+import { Recents } from './recents'
+import { buildMenu } from './menu'
+import { CommandError } from '../shared/commands'
 import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { renderTextPngs } from './textBridge'
@@ -32,13 +35,84 @@ const lastFile = (): string => join(app.getPath('userData'), 'last-project.json'
 const guidePath = (): string => app.isPackaged ? join(process.resourcesPath, 'editor-guide.md') : join(app.getAppPath(), 'src/main/claude/editor-guide.md')
 const chat = new ChatController(editor, { mcpConfig: () => mcpConfigPath(), get guide() { return guidePath() } }, (e) => send(CH.chatEvent, e))
 
-function rememberProject(): void {
-  if (editor.store) writeFileSync(lastFile(), JSON.stringify({ dir: editor.store.dir }))
+let recents: Recents | null = null
+const getRecents = (): Recents => (recents ??= new Recents(join(app.getPath('userData'), 'recent.json')))
+
+async function rememberProject(): Promise<void> {
+  if (editor.store) {
+    writeFileSync(lastFile(), JSON.stringify({ dir: editor.store.dir }))
+    await getRecents().add(editor.store.dir, editor.store.project.name)
+  }
+  await refreshMenu()
+}
+
+async function switchProject(open: () => Promise<void>): Promise<void> {
+  await chat.stopAndWait(); await open(); chat.resetProject(); await rememberProject()
+}
+
+async function closeProject(): Promise<void> {
+  await chat.stopAndWait()
+  await editor.close()
+  chat.resetProject()
+  await rm(lastFile(), { force: true })
+  await refreshMenu()
+}
+
+async function pickProject(mode: 'new' | 'open'): Promise<string | null> {
+  if (mode === 'new') {
+    const r = await dialog.showSaveDialog(win!, { title: 'New project', defaultPath: 'My Project.pedit', buttonLabel: 'Create' })
+    return r.canceled || !r.filePath ? null : r.filePath
+  }
+  const r = await dialog.showOpenDialog(win!, { title: 'Open project', properties: ['openDirectory'] })
+  return r.canceled ? null : r.filePaths[0] ?? null
+}
+
+async function saveCopy(): Promise<string | null> {
+  if (!editor.store) return null
+  const r = await dialog.showSaveDialog(win!, { title: 'Save a copy', defaultPath: `${editor.store.project.name} copy.pedit`, buttonLabel: 'Save copy' })
+  if (r.canceled || !r.filePath) return null
+  await editor.flush()
+  await editor.store.saveCopy(r.filePath)
+  return r.filePath
+}
+
+async function refreshMenu(): Promise<void> {
+  const sendMenu = (a: MenuAction): void => send(CH.menu, a)
+  buildMenu({
+    newProject: () => void pickProject('new').then((d) => { if (d) return switchProject(() => editor.openOrCreate(d)) }),
+    openProject: () => void pickProject('open').then((d) => { if (d) return switchProject(() => editor.openProject(d)) }),
+    openRecent: (d) => void switchProject(() => editor.openProject(d)).catch((e) => console.error(e)),
+    saveCopy: () => void saveCopy(),
+    closeProject: () => void closeProject(),
+    send: sendMenu,
+    undo: () => editor.session?.undo(),
+    redo: () => editor.session?.redo()
+  }, await getRecents().list(), !!editor.store)
 }
 
 function registerIpc(): void {
-  ipcMain.handle(CH.newProject, async (_e, dir: string, name: string) => { await chat.stopAndWait(); await editor.newProject(dir, name); chat.resetProject(); rememberProject() })
-  ipcMain.handle(CH.openProject, async (_e, dir: string) => { await chat.stopAndWait(); await editor.openProject(dir); chat.resetProject(); rememberProject() })
+  ipcMain.handle(CH.newProject, (_e, dir: string, name: string) => switchProject(() => editor.newProject(dir, name)))
+  ipcMain.handle(CH.openProject, (_e, dir: string) => switchProject(() => editor.openProject(dir)))
+  ipcMain.handle(CH.recentProjects, () => getRecents().list())
+  ipcMain.handle(CH.forgetRecent, async (_e, dir: string) => { await getRecents().remove(dir); await refreshMenu() })
+  ipcMain.handle(CH.closeProject, () => closeProject())
+  ipcMain.handle(CH.renameProject, async (_e, name: string) => { await editor.rename(name); await rememberProject() })
+  ipcMain.handle(CH.saveProjectCopy, () => saveCopy())
+  ipcMain.handle(CH.removeMedia, (_e, id: string, force?: boolean) => {
+    try { editor.apply({ type: 'removeMedia', id, force }, 'user'); return { ok: true } } catch (e) {
+      if (e instanceof CommandError && e.code === 'in_use') {
+        const st = editor.session!.state()
+        const uses = [...st.view.video, ...st.view.audio].filter((i) => i.mediaId === id).length
+        return { ok: false, inUse: uses }
+      }
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+  ipcMain.handle(CH.removeUnusedMedia, () => {
+    const ids = editor.unusedMedia()
+    for (const id of ids) editor.apply({ type: 'removeMedia', id }, 'user')
+    return ids.length
+  })
   ipcMain.handle(CH.getState, () => editor.state())
   ipcMain.handle(CH.edit, (_e, cmd) => {
     try { return { ok: true, summary: editor.apply(cmd) } } catch (err) { return { ok: false, error: (err as Error).message } }
@@ -55,15 +129,7 @@ function registerIpc(): void {
     const st = await chat.status()
     return { ffmpeg: ffmpegPath(), encoder: (await detectEncoders()).h264, claude: st.ok ? st.version ?? null : null }
   })
-  ipcMain.handle(CH.pickProjectDir, async (_e, mode: 'new' | 'open') => {
-    if (mode === 'new') {
-      const r = await dialog.showSaveDialog(win!, { title: 'New project', defaultPath: 'My Project.pedit', buttonLabel: 'Create' })
-      if (r.canceled || !r.filePath) return null
-      return r.filePath.endsWith('.pedit') ? r.filePath : `${r.filePath}.pedit`
-    }
-    const r = await dialog.showOpenDialog(win!, { title: 'Open project', properties: ['openDirectory'] })
-    return r.canceled ? null : r.filePaths[0] ?? null
-  })
+  ipcMain.handle(CH.pickProjectDir, (_e, mode: 'new' | 'open') => pickProject(mode))
   ipcMain.handle(CH.pickImport, async (_e, kind: 'files' | 'folder' = 'files') => {
     const r = await dialog.showOpenDialog(win!, {
       title: kind === 'folder' ? 'Import folder' : 'Import media',
@@ -138,6 +204,8 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('could not open project', e)
   }
+  if (editor.store) await rememberProject()
+  await refreshMenu()
   await createWindow()
 })
 

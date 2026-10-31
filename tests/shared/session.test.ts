@@ -122,3 +122,30 @@ describe('applyToDraft (Claude edits)', () => {
     expect(s.state().draftActive).toBe(false)
   })
 })
+
+describe('undo and removed media', () => {
+  it('undo of removeMedia brings the media back, redo removes it again, later imports stay', () => {
+    const s = fresh()
+    s.apply({ type: 'addClip', mediaId: 'm_a' }, 'user')
+    s.apply({ type: 'removeMedia', id: 'm_a', force: true }, 'user')
+    expect(s.state().real.media.map((m) => m.id)).toEqual(['m_b'])
+    s.apply({ type: 'addMedia', items: [{ ...s.state().real.media[0], id: 'm_new' }] }, 'user')
+    s.undo()
+    expect(s.state().real.media.map((m) => m.id).sort()).toEqual(['m_a', 'm_b', 'm_new'])
+    expect(s.state().real.video).toHaveLength(1)
+    s.redo()
+    expect(s.state().real.media.map((m) => m.id).sort()).toEqual(['m_b', 'm_new'])
+  })
+})
+
+describe('drafts and removed media', () => {
+  it('media Claude removed in a draft stays removed while previews keep updating', () => {
+    const s = fresh()
+    s.applyToDraft({ type: 'removeMedia', id: 'm_b' }, 'claude')
+    s.apply({ type: 'updateMedia', id: 'm_a', patch: { status: 'ready' } }, 'user')
+    expect(s.state().view.media.map((m) => m.id)).toEqual(['m_a'])
+    expect(s.state().real.media.map((m) => m.id)).toEqual(['m_a', 'm_b'])
+    s.acceptDraft()
+    expect(s.state().real.media.map((m) => m.id)).toEqual(['m_a'])
+  })
+})
