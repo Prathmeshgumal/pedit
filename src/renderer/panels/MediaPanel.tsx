@@ -40,7 +40,7 @@ function Tile({ m }: { m: MediaItem }) {
       <div className="truncate px-1.5 py-1 text-[11px]">{m.name}</div>
       {working && (
         <div data-testid="media-progress" className="px-1.5 pb-1.5">
-          <div className="mb-0.5 text-[9px] text-neutral-400">{progress ? `${STAGE_LABEL[progress.stage]} ${progress.pct}%` : 'queued'}</div>
+          <div className="mb-0.5 text-[9px] text-neutral-400">{!progress ? 'queued' : progress.pct === 100 && progress.stage !== 'proxy' ? 'waiting for preview copy…' : `${STAGE_LABEL[progress.stage]} ${progress.pct}%`}</div>
           <div className="h-1 rounded bg-neutral-700"><div className="h-1 rounded bg-sky-500" style={{ width: `${progress?.stage === 'proxy' ? progress.pct : 5}%` }} /></div>
         </div>
       )}

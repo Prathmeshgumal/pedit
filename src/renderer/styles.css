@@ -9,3 +9,4 @@ body { font-family: Inter, system-ui, sans-serif; background: #141416; }
   .btn:disabled, .btn-primary:disabled { opacity: .45; }
   .btn-primary { background: #2f6db5; color: white; border-radius: 4px; padding: 3px 12px; font-size: 11px; }
 }
+* { scrollbar-color: #3a3a42 transparent; scrollbar-width: thin; }

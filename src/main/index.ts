@@ -6,6 +6,9 @@ import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 
 registerMediaScheme()
+// An editor keeps playing smoothly even when partly covered by other windows.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
 
 let win: BrowserWindow | null = null
 const send = (ch: string, ...args: unknown[]): void => { if (win && !win.isDestroyed()) win.webContents.send(ch, ...args) }
@@ -50,7 +53,7 @@ function registerIpc(): void {
 async function createWindow(): Promise<void> {
   win = new BrowserWindow({
     width: 1600, height: 960, title: 'pedit', backgroundColor: '#141416',
-    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: false, contextIsolation: true }
+    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' }
   })
   win.on('page-title-updated', (e) => e.preventDefault())
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL)
