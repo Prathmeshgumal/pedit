@@ -34,9 +34,11 @@ export class Player {
   private playing = false
   /** Playback should resume once the seek in flight finishes (a newer seek inherits this). */
   private resumeAfterSeek = false
+  /** What the timeline plays (segments, lanes, length, size); unchanged → no re-seek on a project update. */
+  private playKey = ''
   private raf = 0
   private listeners = new Set<(ms: number) => void>()
-  private st = { presented: 0, dropped: 0, lastSeekMs: 0 }
+  private st = { presented: 0, dropped: 0, lastSeekMs: 0, seeks: 0 }
   private t = 0
   private video: Seg[] = []
   private lanes: Seg[][] = []
@@ -64,6 +66,7 @@ export class Player {
   /** Preview one media file on its own. */
   async loadClip(media: MediaItem): Promise<void> {
     this.mode = 'clip'
+    this.playKey = ''
     this.project = null
     const url = proxyUrl(media)
     if (!url) throw new Error('no proxy yet')
@@ -74,18 +77,15 @@ export class Player {
     this.video = [{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1, still }]
     this.lanes = src.hasAudio ? [[{ startMs: 0, inMs: 0, outMs: dur, url, gain: 1 }]] : []
     this.durationMs = dur
-    this.st = { presented: 0, dropped: 0, lastSeekMs: 0 }
+    this.st = { presented: 0, dropped: 0, lastSeekMs: 0, seeks: 0 }
     await this.seek(0)
   }
 
   /** Preview the timeline; call on every project change. Keeps the playhead. */
   async setProject(p: Project): Promise<void> {
     const wasPlaying = (this.playing || this.resumeAfterSeek) && this.mode === 'timeline'
-    this.mode = 'timeline'
-    this.project = p
     const media = new Map(p.media.map((m) => [m.id, m]))
-    this.size = { width: p.settings.width, height: p.settings.height }
-    this.video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume, still: media.get(v.mediaId)?.kind === 'image', transform: v.transform }))
+    const video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume, still: media.get(v.mediaId)?.kind === 'image', transform: v.transform }))
     const clipAudio = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: audioUrl(media.get(v.mediaId)), gain: v.volume }))
     // one producer per audio lane: items on a lane never overlap, so each lane plays in order
     const byLane = new Map<number, Seg[]>()
@@ -93,8 +93,18 @@ export class Player {
       const seg = { startMs: a.startMs, inMs: a.inMs, outMs: a.outMs, url: audioUrl(media.get(a.mediaId)), gain: a.volume }
       if (seg.url) byLane.set(a.lane ?? 0, [...(byLane.get(a.lane ?? 0) ?? []), seg])
     }
-    this.lanes = [clipAudio.filter((s) => s.url), ...byLane.values()]
-    this.durationMs = timelineDurationMs(p)
+    const lanes = [clipAudio.filter((s) => s.url), ...byLane.values()]
+    const durationMs = timelineDurationMs(p)
+    const key = JSON.stringify([video, lanes, durationMs, p.settings.width, p.settings.height])
+    const same = this.mode === 'timeline' && key === this.playKey
+    this.project = p // text and other per-frame drawing read this
+    if (same) { if (!this.playing) this.redraw(); return }
+    this.mode = 'timeline'
+    this.playKey = key
+    this.size = { width: p.settings.width, height: p.settings.height }
+    this.video = video
+    this.lanes = lanes
+    this.durationMs = durationMs
     await this.seek(Math.min(this.t, this.durationMs), wasPlaying)
   }
 
@@ -138,6 +148,7 @@ export class Player {
   async seek(ms: number, resume = this.playing || this.resumeAfterSeek): Promise<void> {
     this.resumeAfterSeek = resume
     if (this.playing) { this.playing = false; cancelAnimationFrame(this.raf); this.audio.stop() }
+    this.st.seeks++
     const g = ++this.gen
     this.flushQueue()
     this.t = Math.max(0, Math.min(ms, this.durationMs))
@@ -160,7 +171,7 @@ export class Player {
   }
 
   onTime(cb: (ms: number) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb) }
-  stats(): { presented: number; dropped: number; lastSeekMs: number; audioScheduled: number } { return { ...this.st, audioScheduled: this.audio.scheduled } }
+  stats(): { presented: number; dropped: number; lastSeekMs: number; seeks: number; audioScheduled: number } { return { ...this.st, audioScheduled: this.audio.scheduled } }
   debug(): Record<string, unknown> {
     return { ctx: this.audio.ctx.state, now: this.audio.nowMs(), q: this.queue.length, head: this.queue[0]?.ms, shownMs: this.shownMs, playing: this.playing, mode: this.mode }
   }

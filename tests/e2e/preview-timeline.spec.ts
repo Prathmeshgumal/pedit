@@ -103,3 +103,22 @@ test('pausing while a seek is still loading keeps it paused', async () => {
   expect(await call(win, 'isPlayingNow')).toBe(false)
   await app.close()
 })
+
+test('files finishing their preview in the background do not interrupt playback', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'BG.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4'), join(FIX, 'photos', 'square.png')])
+  await waitReady(win, 2)
+  const ids = await mediaIds(win)
+  await pedit(win, 'edit', { type: 'addClip', mediaId: ids['h264_1080p30.mp4'] })
+  await expect(win.locator('[data-testid=preview-canvas]')).toHaveAttribute('data-loaded', 'true', { timeout: 10000 })
+  await call(win, 'play')
+  await win.waitForTimeout(300)
+  const seeks0 = (await call(win, 'stats') as { seeks: number }).seeks
+  // an unused file's preview being rebuilt: 20 project updates while playing
+  for (let i = 0; i < 20; i++) await pedit(win, 'edit', { type: 'updateMedia', id: ids['square.png'], patch: { error: `tick ${i}` } })
+  await win.waitForTimeout(300)
+  expect(await call(win, 'isPlayingNow')).toBe(true)
+  expect((await call(win, 'stats') as { seeks: number }).seeks).toBe(seeks0)
+  await app.close()
+})
