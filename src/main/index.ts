@@ -4,6 +4,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { CH } from '../shared/ipc'
 import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
+import { renderTextPngs } from './textBridge'
+import type { TextItem } from '../shared/model'
 
 registerMediaScheme()
 // An editor keeps playing smoothly even when partly covered by other windows.
@@ -63,6 +65,8 @@ async function createWindow(): Promise<void> {
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' }
   })
   win.on('page-title-updated', (e) => e.preventDefault())
+  // test hook: lets e2e tests drive main-process helpers through app.evaluate
+  ;(globalThis as Record<string, unknown>).__peditMain = { renderTextPngs: (items: TextItem[], w: number, h: number, dir: string) => renderTextPngs(win!.webContents, items, w, h, dir) }
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else await win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
 }

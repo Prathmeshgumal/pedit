@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useUi, fmtDur } from '../store'
 import { Player } from '../preview/player'
 import { setPlayer } from '../preview/instance'
+import { textLayers } from '../text/layers'
 
 export function PreviewPanel() {
   const view = useUi((s) => s.project)
@@ -22,6 +23,7 @@ export function PreviewPanel() {
     const p = new Player(canvas.current!)
     player.current = p
     setPlayer(p)
+    p.setTextRenderer(textLayers(() => p.requestRedraw()))
     ;(window as unknown as { __peditPlayer: Player }).__peditPlayer = p
     let last = 0
     const off = p.onTime((ms) => {

@@ -202,6 +202,8 @@ export class Player {
   }
 
   private redraw(): void { this.comp.draw(this.layers(this.shown)) }
+  /** Repaint the current frame (e.g. a text layer finished rendering). */
+  requestRedraw(): void { if (!this.playing) this.redraw() }
 
   private flushQueue(): void { for (const q of this.queue) q.frame.close(); this.queue = [] }
 

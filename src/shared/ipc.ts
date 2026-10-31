@@ -1,4 +1,4 @@
-import type { MediaId } from './model'
+import type { ItemId, MediaId, TextItem } from './model'
 import type { Command } from './commands'
 import type { SessionState } from './session'
 
@@ -21,6 +21,8 @@ export interface PeditApi {
   rejectDraft(): Promise<void>
   onMediaProgress(cb: (id: MediaId, stage: ProgressStage, pct: number) => void): () => void
   pathForFile(file: File): string
+  /** Renderer side of main's renderTextPngs: render each text item to PNG bytes. */
+  onTextRenderRequest(handler: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, Uint8Array>>): () => void
 }
 
 export const CH = {
@@ -38,5 +40,7 @@ export const CH = {
   redo: 'session:redo',
   acceptDraft: 'session:accept',
   rejectDraft: 'session:reject',
-  mediaProgress: 'media:progress'
+  mediaProgress: 'media:progress',
+  textRender: 'text:render',
+  textRendered: 'text:rendered'
 } as const
