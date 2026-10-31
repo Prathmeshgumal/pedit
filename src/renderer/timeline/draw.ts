@@ -2,7 +2,7 @@ import type { MediaItem, Project } from '@shared/model'
 import type { DraftDiff } from '@shared/session'
 import { mediaUrl } from '@shared/mediaUrl'
 import { MAX_FILMSTRIP_FRAMES } from './constants'
-import { CONTENT_H, HEADER_W, RULER_H, TRACKS, layoutTimeline, msToX, type LaidOut, type Track } from './layout'
+import { HEADER_W, RULER_H, layoutTimeline, msToX, type LaidOut, type Track, type TrackRow } from './layout'
 
 const COLORS: Record<Track, string> = { video: '#2f6db5', text: '#b5822f', audio: '#2e8b57' }
 
@@ -37,7 +37,9 @@ export interface DrawState {
   scrollMs: number
   selected: string | null
   ghost: { id: string; dxMs: number; trim?: 'left-edge' | 'right-edge' } | null
-  dropHint: { track: Track; ms: number } | null
+  dropHint: { row: string; ms: number } | null
+  rows: TrackRow[]
+  height: number
 }
 
 function tickStep(pxPerMs: number): number {
@@ -65,8 +67,10 @@ function stripes(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawState, redraw: () => void): LaidOut[] {
   const p = s.project
-  ctx.clearRect(0, 0, w, CONTENT_H)
-  ctx.fillStyle = '#1a1a1e'; ctx.fillRect(0, 0, w, CONTENT_H)
+  const H = s.height
+  const rowOf = new Map(s.rows.map((r) => [r.key, r]))
+  ctx.clearRect(0, 0, w, H)
+  ctx.fillStyle = '#1a1a1e'; ctx.fillRect(0, 0, w, H)
   // ruler
   ctx.fillStyle = '#232328'; ctx.fillRect(0, 0, w, RULER_H)
   ctx.font = '10px Inter, system-ui'; ctx.fillStyle = '#80808a'; ctx.strokeStyle = '#3a3a42'
@@ -79,19 +83,21 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
     ctx.fillText(rulerLabel(t), x + 3, 12)
   }
   // track backgrounds + labels
-  for (const [name, t] of Object.entries(TRACKS) as Array<[Track, (typeof TRACKS)[Track]]>) {
+  for (const t of s.rows) {
+    const name = t.key
     ctx.fillStyle = '#222227'; ctx.fillRect(HEADER_W, RULER_H + t.y, w - HEADER_W, t.h)
     ctx.fillStyle = '#6b6b75'; ctx.fillText(t.label, 8, RULER_H + t.y + t.h / 2 + 3)
-    if (s.dropHint?.track === name) { ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.fillRect(HEADER_W, RULER_H + t.y, w - HEADER_W, t.h) }
+    if (s.dropHint?.row === name) { ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.fillRect(HEADER_W, RULER_H + t.y, w - HEADER_W, t.h) }
   }
   const media = new Map<string, MediaItem>(p.media.map((m) => [m.id, m]))
   const layout = layoutTimeline(p, s.pxPerMs, s.scrollMs)
-  ctx.save(); ctx.beginPath(); ctx.rect(HEADER_W, 0, w - HEADER_W, CONTENT_H); ctx.clip()
+  ctx.save(); ctx.beginPath(); ctx.rect(HEADER_W, 0, w - HEADER_W, H); ctx.clip()
 
   // removed-in-draft items, drawn at their real position
   if (s.real && s.diff?.removed.length) {
     for (const it of layoutTimeline(s.real, s.pxPerMs, s.scrollMs).filter((i) => s.diff!.removed.includes(i.id))) {
-      const t = TRACKS[it.track]; const y = RULER_H + t.y
+      const t = rowOf.get(it.row); if (!t) continue
+      const y = RULER_H + t.y
       ctx.fillStyle = 'rgba(90,42,42,0.6)'; ctx.fillRect(it.x, y + 2, it.w, t.h - 4)
       ctx.setLineDash([4, 3]); ctx.strokeStyle = '#ff6b6b'; ctx.strokeRect(it.x + 0.5, y + 2.5, it.w - 1, t.h - 5); ctx.setLineDash([])
       ctx.beginPath(); ctx.moveTo(it.x, y + t.h / 2); ctx.lineTo(it.x + it.w, y + t.h / 2); ctx.stroke()
@@ -99,7 +105,8 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
   }
 
   for (const it of layout) {
-    const t = TRACKS[it.track]
+    const t = rowOf.get(it.row)
+    if (!t) continue
     let { x, w: iw } = it
     if (s.ghost?.id === it.id) {
       const dx = s.ghost.dxMs * s.pxPerMs
@@ -160,7 +167,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
   }
   if (s.dropHint) {
     const x = msToX(s.dropHint.ms, s.pxPerMs, s.scrollMs)
-    const t = TRACKS[s.dropHint.track]
+    const t = rowOf.get(s.dropHint.row)!
     ctx.fillStyle = '#38bdf8'; ctx.fillRect(x - 1, RULER_H + t.y, 2, t.h)
   }
   ctx.restore()
@@ -168,10 +175,10 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
 }
 
 /** Playhead on its own overlay canvas, so playback never redraws the tracks. */
-export function drawPlayhead(ctx: CanvasRenderingContext2D, w: number, playheadMs: number, pxPerMs: number, scrollMs: number): void {
-  ctx.clearRect(0, 0, w, CONTENT_H)
+export function drawPlayhead(ctx: CanvasRenderingContext2D, w: number, H: number, playheadMs: number, pxPerMs: number, scrollMs: number): void {
+  ctx.clearRect(0, 0, w, H)
   const px = Math.round(msToX(playheadMs, pxPerMs, scrollMs)) + 0.5
   if (px < HEADER_W) return
-  ctx.strokeStyle = '#f5f5f5'; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, CONTENT_H); ctx.stroke()
+  ctx.strokeStyle = '#f5f5f5'; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke()
   ctx.fillStyle = '#f5f5f5'; ctx.beginPath(); ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 7); ctx.fill()
 }

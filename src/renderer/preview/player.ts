@@ -85,8 +85,13 @@ export class Player {
     this.size = { width: p.settings.width, height: p.settings.height }
     this.video = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: proxyUrl(media.get(v.mediaId)), gain: v.volume, still: media.get(v.mediaId)?.kind === 'image' }))
     const clipAudio = p.video.map((v) => ({ startMs: v.startMs, inMs: v.inMs, outMs: v.outMs, url: audioUrl(media.get(v.mediaId)), gain: v.volume }))
-    const music = p.audio.map((a) => ({ startMs: a.startMs, inMs: a.inMs, outMs: a.outMs, url: audioUrl(media.get(a.mediaId)), gain: a.volume }))
-    this.lanes = [clipAudio.filter((s) => s.url), music.filter((s) => s.url)]
+    // one producer per audio lane: items on a lane never overlap, so each lane plays in order
+    const byLane = new Map<number, Seg[]>()
+    for (const a of [...p.audio].sort((x, y) => x.startMs - y.startMs)) {
+      const seg = { startMs: a.startMs, inMs: a.inMs, outMs: a.outMs, url: audioUrl(media.get(a.mediaId)), gain: a.volume }
+      if (seg.url) byLane.set(a.lane ?? 0, [...(byLane.get(a.lane ?? 0) ?? []), seg])
+    }
+    this.lanes = [clipAudio.filter((s) => s.url), ...byLane.values()]
     this.durationMs = timelineDurationMs(p)
     await this.seek(Math.min(this.t, this.durationMs), wasPlaying)
   }

@@ -12,8 +12,12 @@ export function snapCandidates(p: Project, exceptId: string, playheadMs: number)
 }
 
 /** Translate a finished drag (time delta in ms) into one edit command, or null for no-op. */
-export function dragToCommand(p: Project, id: string, track: Track, zone: Zone, dxMs: number): Command | null {
+export function dragToCommand(p: Project, id: string, track: Track, zone: Zone, dxMs: number, lane?: number): Command | null {
   const dx = Math.round(dxMs)
+  if (track === 'audio' && zone === 'body' && lane !== undefined) {
+    const a = p.audio.find((i) => i.id === id)!
+    if (lane !== (a.lane ?? 0)) return { type: 'moveItem', id, toMs: Math.max(0, a.startMs + dx), lane }
+  }
   if (dx === 0) return null
   if (track === 'text') {
     const t = p.text.find((i) => i.id === id)!

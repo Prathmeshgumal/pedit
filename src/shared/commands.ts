@@ -23,6 +23,7 @@ export type Command =
   | { type: 'trimToPlayhead'; id: ItemId; atMs: number; side: 'left' | 'right' }
   | { type: 'insertFreeze'; id: ItemId; atMs: number; mediaId: MediaId; durationMs: number }
   | { type: 'replaceClip'; id: ItemId; mediaId: MediaId }
+  | { type: 'addAudio'; mediaId: MediaId; startMs: number; lane: number; inMs?: number; outMs?: number; volume?: number }
 
 export type CommandErrorCode = 'not_found' | 'overlap' | 'invalid' | 'media_not_found' | 'in_use'
 
@@ -365,6 +366,18 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       n.video.splice(at, 0, f)
       ripple(n.video)
       return done(`added a ${fmtTime(dur(f))} freeze frame ${f.id} at ${fmtTime(f.startMs)}`, [f.id])
+    }
+
+    case 'addAudio': {
+      const m = findMedia(n, cmd.mediaId)
+      if (!m.hasAudio) fail('invalid', `${m.name} has no sound`)
+      const span = clampTrim({ inMs: 0, outMs: m.durationMs }, m, cmd.inMs, cmd.outMs)
+      const volume = cmd.volume ?? 1
+      if (volume < 0 || volume > 2) fail('invalid', 'volume must be between 0 and 2')
+      const a: AudioItem = { id: ids('a'), mediaId: m.id, startMs: int(Math.max(0, cmd.startMs)), ...span, volume, lane: Math.max(0, int(cmd.lane)) }
+      n.audio.push(a)
+      assertAudioLanes(n.audio)
+      return done(`added ${a.id} (${m.name}) at ${fmtTime(a.startMs)} on audio lane ${a.lane}`, [a.id])
     }
 
     case 'replaceClip': {

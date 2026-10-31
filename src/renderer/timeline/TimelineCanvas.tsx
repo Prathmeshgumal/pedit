@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type PointerEvent, type WheelEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type WheelEvent } from 'react'
 import { useUi, edit } from '../store'
 import { getPlayer } from '../preview/instance'
-import { CONTENT_H, HEADER_W, RULER_H, hitTest, snapMs, trackAt, xToMs, layoutTimeline, type LaidOut, type Track } from './layout'
+import { HEADER_W, RULER_H, contentHeight, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
 import { drawPlayhead, drawTimeline, type DrawState } from './draw'
 import { dragToCommand, snapCandidates, splitTarget, type Zone } from './interact'
 import { timelineDurationMs } from '@shared/model'
@@ -32,6 +32,10 @@ export function TimelineCanvas() {
   const fitted = useRef(false)
 
   const project = session?.view ?? null
+  const rows = useMemo(() => (project ? trackRows(project) : []), [project])
+  const rowsRef = useRef<TrackRow[]>([])
+  rowsRef.current = rows
+  const H = rows.length ? contentHeight(rows) : 168
 
   useEffect(() => {
     const ro = new ResizeObserver(() => setWidth(wrap.current!.clientWidth))
@@ -76,37 +80,45 @@ export function TimelineCanvas() {
   useEffect(() => {
     const c = canvas.current!
     const dpr = window.devicePixelRatio || 1
-    c.width = Math.round(width * dpr); c.height = Math.round(CONTENT_H * dpr)
+    c.width = Math.round(width * dpr); c.height = Math.round(H * dpr)
     const ctx = c.getContext('2d')!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    if (!project) { ctx.clearRect(0, 0, width, CONTENT_H); return }
+    if (!project) { ctx.clearRect(0, 0, width, H); return }
     layoutRef.current = drawTimeline(ctx, width, {
       project, real: session?.draftActive ? session.real : null, diff: session?.diff ?? null,
-      pxPerMs, scrollMs, selected, ghost, dropHint
+      pxPerMs, scrollMs, selected, ghost, dropHint, rows, height: H
     }, redraw)
-  }, [project, session, width, pxPerMs, scrollMs, selected, ghost, dropHint, tick, redraw])
+  }, [project, session, width, pxPerMs, scrollMs, selected, ghost, dropHint, tick, redraw, rows, H])
 
   useEffect(() => {
     const c = overlay.current!
     const dpr = window.devicePixelRatio || 1
-    if (c.width !== Math.round(width * dpr)) { c.width = Math.round(width * dpr); c.height = Math.round(CONTENT_H * dpr) }
+    if (c.width !== Math.round(width * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(width * dpr); c.height = Math.round(H * dpr) }
     const ctx = c.getContext('2d')!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    drawPlayhead(ctx, width, project ? playhead : -1e9, pxPerMs, scrollMs)
-  }, [playhead, width, pxPerMs, scrollMs, project])
+    drawPlayhead(ctx, width, H, project ? playhead : -1e9, pxPerMs, scrollMs)
+  }, [playhead, width, pxPerMs, scrollMs, project, H])
 
   // expose layout for end-to-end tests
   useEffect(() => {
     ;(window as unknown as { __peditTimeline: unknown }).__peditTimeline = {
       items: () => {
         const r = canvas.current!.getBoundingClientRect()
-        const tracks = { text: [6, 26], video: [38, 58], audio: [102, 38] } as const
-        return layoutRef.current.map((i) => ({ ...i, left: r.left + i.x, right: r.left + i.x + i.w, cy: r.top + RULER_H + tracks[i.track][0] + tracks[i.track][1] / 2 }))
+        const row = (k: string): TrackRow => rowsRef.current.find((x) => x.key === k)!
+        return layoutRef.current.map((i) => ({ ...i, left: r.left + i.x, right: r.left + i.x + i.w, cy: r.top + RULER_H + row(i.row).y + row(i.row).h / 2 }))
       },
-      trackY: (t: Track) => { const r = canvas.current!.getBoundingClientRect(); return r.top + RULER_H + ({ text: 19, video: 67, audio: 121 } as const)[t] },
+      trackY: (t: Track) => rowY(t === 'audio' ? 'audio:0' : t),
+      rowY,
+      rows: () => rowsRef.current.map((x) => x.key),
       left: () => canvas.current!.getBoundingClientRect().left + HEADER_W
     }
   })
+
+  function rowY(key: string): number {
+    const r = canvas.current!.getBoundingClientRect()
+    const row = rowsRef.current.find((x) => x.key === key)
+    return row ? r.top + RULER_H + row.y + row.h / 2 : NaN
+  }
 
   const seekTo = (x: number): void => {
     const ms = Math.max(0, xToMs(x, pxPerMs, scrollMs))
@@ -125,7 +137,7 @@ export function TimelineCanvas() {
     const { x, y } = local(e)
     canvas.current!.setPointerCapture(e.pointerId)
     if (y < RULER_H) { drag.current = { kind: 'scrub' }; seekTo(x); return }
-    const hit = hitTest(layoutRef.current, x, y)
+    const hit = hitTest(layoutRef.current, rowsRef.current, x, y)
     if (!hit) { useUi.getState().selectItem(null); if (x > HEADER_W) seekTo(x); return }
     useUi.getState().selectItem(hit.id)
     const track = layoutRef.current.find((i) => i.id === hit.id)!.track
@@ -137,7 +149,7 @@ export function TimelineCanvas() {
     const { x, y } = local(e)
     const d = drag.current
     if (!d) {
-      const hit = y >= RULER_H ? hitTest(layoutRef.current, x, y) : null
+      const hit = y >= RULER_H ? hitTest(layoutRef.current, rowsRef.current, x, y) : null
       setCursor(hit ? (hit.zone === 'body' ? 'grab' : 'ew-resize') : y < RULER_H ? 'pointer' : 'default')
       return
     }
@@ -154,12 +166,15 @@ export function TimelineCanvas() {
     setGhost({ id: d.id, dxMs, ...(d.zone === 'body' ? {} : { trim: d.zone }) })
   }
 
-  const onPointerUp = (): void => {
+  const onPointerUp = (e: PointerEvent): void => {
     const d = drag.current
     drag.current = null
     setGhost(null)
     if (!d || d.kind !== 'item' || !d.moved || !project) return
-    const cmd = dragToCommand(project, d.id, d.track, d.zone, d.dxMs)
+    // audio dragged onto another audio row changes lane
+    const over = d.track === 'audio' && d.zone === 'body' ? rowAt(rowsRef.current, local(e).y) : null
+    const lane = over?.kind === 'audio' ? over.lane : undefined
+    const cmd = dragToCommand(project, d.id, d.track, d.zone, d.dxMs, lane)
     if (cmd) void edit(cmd)
   }
 
@@ -176,17 +191,17 @@ export function TimelineCanvas() {
     }
   }
 
-  const dropTarget = (e: DragEvent): { track: Track; ms: number } | null => {
+  const dropTarget = (e: DragEvent): { row: TrackRow; ms: number } | null => {
     if (!e.dataTransfer.types.includes('application/x-pedit-media')) return null
     const { x, y } = local(e)
-    const track = trackAt(y)
-    if (!track || track === 'text') return null
-    return { track, ms: Math.max(0, xToMs(x, pxPerMs, scrollMs)) }
+    const row = rowAt(rowsRef.current, y)
+    if (!row || row.kind === 'text') return null
+    return { row, ms: Math.max(0, xToMs(x, pxPerMs, scrollMs)) }
   }
 
   const onDragOver = (e: DragEvent): void => {
     const t = dropTarget(e)
-    if (t) { e.preventDefault(); setDropHint(t) } else setDropHint(null)
+    if (t) { e.preventDefault(); setDropHint({ row: t.row.key, ms: t.ms }) } else setDropHint(null)
   }
 
   const onDrop = (e: DragEvent): void => {
@@ -196,8 +211,9 @@ export function TimelineCanvas() {
     e.preventDefault()
     const mediaId = e.dataTransfer.getData('application/x-pedit-media')
     useUi.getState().previewClip(null)
-    if (t.track === 'video') void edit({ type: 'addClip', mediaId, atMs: Math.round(t.ms) })
-    else void edit({ type: 'setMusic', mediaId })
+    if (t.row.kind === 'video') void edit({ type: 'addClip', mediaId, atMs: Math.round(t.ms) })
+    else if (t.row.lane === 0 && !project?.audio.length) void edit({ type: 'setMusic', mediaId })
+    else void edit({ type: 'addAudio', mediaId, startMs: Math.round(t.ms), lane: t.row.lane })
   }
 
   // keyboard shortcuts
@@ -239,9 +255,9 @@ export function TimelineCanvas() {
         <button className="btn normal-case" onClick={() => setPxPerMs((z) => Math.max(MIN_ZOOM, z / 1.5))}>－</button>
         <button className="btn normal-case" onClick={() => { if (project) { const d = timelineDurationMs(project); if (d) { setPxPerMs(Math.min(MAX_ZOOM, (width - HEADER_W - 40) / d)); setScrollMs(0) } } }}>Fit</button>
       </div>
-      <div ref={wrap} className="relative min-h-0 flex-1 overflow-hidden">
-        <canvas ref={overlay} className="pointer-events-none absolute left-0 top-0" style={{ width, height: CONTENT_H }} />
-        <canvas ref={canvas} data-testid="timeline-canvas" style={{ width, height: CONTENT_H, cursor, display: 'block' }}
+      <div ref={wrap} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <canvas ref={overlay} className="pointer-events-none absolute left-0 top-0" style={{ width, height: H }} />
+        <canvas ref={canvas} data-testid="timeline-canvas" style={{ width, height: H, cursor, display: 'block' }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
           onWheel={onWheel} onDragOver={onDragOver} onDragLeave={() => setDropHint(null)} onDrop={onDrop} />
         {project && project.video.length === 0 && project.audio.length === 0 && project.text.length === 0 && (

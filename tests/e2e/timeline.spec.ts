@@ -6,7 +6,7 @@ import { launch } from './helpers'
 import { pedit, waitReady, call } from './util'
 
 const FIX = resolve('tests/fixtures/media')
-type It = { id: string; track: string; left: number; right: number; cy: number; startMs: number; endMs: number }
+type It = { id: string; track: string; row: string; left: number; right: number; cy: number; startMs: number; endMs: number }
 const items = (win: Page): Promise<It[]> => win.evaluate(() => (window as unknown as { __peditTimeline: { items(): It[] } }).__peditTimeline.items())
 const videoState = async (win: Page): Promise<Array<{ id: string; startMs: number; inMs: number; outMs: number }>> =>
   (await pedit<{ view: { video: Array<{ id: string; startMs: number; inMs: number; outMs: number }> } }>(win, 'getState')).view.video
@@ -88,5 +88,38 @@ test('text moves along the timeline when dragged', async () => {
     (await pedit<{ view: { text: Array<{ startMs: number; style: { position: string; x?: number; y?: number } }> } }>(win, 'getState')).view.text[0]
   const pxPerMs = (t.right - t.left) / (t.endMs - t.startMs)
   await expect.poll(async () => (await text()).startMs).toBeGreaterThan(t.startMs + 70 / pxPerMs)
+  await app.close()
+})
+
+test('audio can sit on several lanes: drop on the + AUDIO row, drag between rows', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'AL.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'music', 'track_02.mp3')])
+  await waitReady(win, 1)
+  const tl = <T>(fn: string, ...a: unknown[]): Promise<T> => win.evaluate(([f, x]) => (window as unknown as { __peditTimeline: Record<string, (...y: unknown[]) => unknown> }).__peditTimeline[f as string](...(x as unknown[])), [fn, a] as const) as Promise<T>
+  const left = await tl<number>('left')
+  const audio = async (): Promise<Array<{ lane?: number; startMs: number; inMs: number; outMs: number }>> =>
+    (await pedit<{ view: { audio: Array<{ lane?: number; startMs: number; inMs: number; outMs: number }> } }>(win, 'getState')).view.audio
+
+  await dragTile(win, 0, left + 5, await tl<number>('rowY', 'audio:0'))
+  await expect.poll(async () => (await audio()).length).toBe(1)
+  await pedit(win, 'edit', { type: 'trimItem', id: (await pedit<{ view: { audio: Array<{ id: string }> } }>(win, 'getState')).view.audio[0].id, outMs: 3000 })
+  await expect.poll(() => tl<string[]>('rows')).toEqual(['text', 'video', 'audio:0', 'audio:new'])
+  await dragTile(win, 0, left + 5, await tl<number>('rowY', 'audio:new'))
+  await expect.poll(async () => (await audio()).map((a) => a.lane ?? 0).sort()).toEqual([0, 1])
+  await expect.poll(() => tl<string[]>('rows')).toEqual(['text', 'video', 'audio:0', 'audio:1', 'audio:new'])
+
+  // trim the lane-1 sound short, then drag it down... up onto the music row, after the 3s music piece
+  const l1 = (await items(win)).find((i) => i.row === 'audio:1')!
+  await pedit(win, 'edit', { type: 'trimItem', id: l1.id, outMs: 1000 })
+  await win.waitForTimeout(200)
+  const it = (await items(win)).find((i) => i.row === 'audio:1')!
+  const music = (await items(win)).find((i) => i.row === 'audio:0')!
+  await win.mouse.move(it.left + 10, it.cy)
+  await win.mouse.down()
+  await win.mouse.move(music.right + 40, it.cy, { steps: 4 })
+  await win.mouse.move(music.right + 40, music.cy, { steps: 4 })
+  await win.mouse.up()
+  await expect.poll(async () => (await audio()).every((a) => (a.lane ?? 0) === 0)).toBe(true)
   await app.close()
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { layoutTimeline, hitTest, snapMs, TRACKS, RULER_H, HEADER_W } from '../../src/renderer/timeline/layout'
+import { layoutTimeline, hitTest, snapMs, trackRows, rowAt, TRACKS, RULER_H, HEADER_W } from '../../src/renderer/timeline/layout'
 import { applyCommand, type Command } from '@shared/commands'
 import { seqIds } from '@shared/ids'
 import { media, projectWith } from './helpers'
@@ -24,16 +24,33 @@ describe('timeline layout', () => {
     expect(layoutTimeline(build(), 0.1, 1000)[0].x).toBe(HEADER_W - 100)
   })
   it('hit-tests edges within 6px and bodies', () => {
-    const l = layoutTimeline(build(), 0.1, 0)
+    const p = build()
+    const l = layoutTimeline(p, 0.1, 0)
+    const rows = trackRows(p)
     const y = RULER_H + TRACKS.video.y + 10
-    expect(hitTest(l, HEADER_W + 397, y)).toEqual({ id: 'c_000001', zone: 'right-edge' })
-    expect(hitTest(l, HEADER_W + 2, y)).toEqual({ id: 'c_000001', zone: 'left-edge' })
-    expect(hitTest(l, HEADER_W + 200, y)).toEqual({ id: 'c_000001', zone: 'body' })
-    expect(hitTest(l, HEADER_W + 200, RULER_H + TRACKS.audio.y + 5)).toEqual({ id: 'a_000004', zone: 'body' })
-    expect(hitTest(l, HEADER_W + 900, y)).toBeNull()
+    expect(hitTest(l, rows, HEADER_W + 397, y)).toEqual({ id: 'c_000001', zone: 'right-edge' })
+    expect(hitTest(l, rows, HEADER_W + 2, y)).toEqual({ id: 'c_000001', zone: 'left-edge' })
+    expect(hitTest(l, rows, HEADER_W + 200, y)).toEqual({ id: 'c_000001', zone: 'body' })
+    expect(hitTest(l, rows, HEADER_W + 200, RULER_H + TRACKS.audio.y + 5)).toEqual({ id: 'a_000004', zone: 'body' })
+    expect(hitTest(l, rows, HEADER_W + 900, y)).toBeNull()
   })
   it('snaps only within the pixel tolerance', () => {
     expect(snapMs(4060, [4000, 6000], 8, 0.1)).toBe(4000)
     expect(snapMs(4100, [4000, 6000], 8, 0.1)).toBe(4100)
+  })
+  it('audio lanes get one row each plus an empty row to drop on', () => {
+    const p = build()
+    p.audio.push({ id: 'a_x', mediaId: 'm_t', startMs: 0, inMs: 0, outMs: 1000, volume: 1, lane: 2 })
+    const rows = trackRows(p)
+    expect(rows.map((r) => r.key)).toEqual(['text', 'video', 'audio:0', 'audio:2', 'audio:new'])
+    expect(rows.find((r) => r.key === 'audio:new')!.lane).toBe(3)
+    const lane2 = rows.find((r) => r.key === 'audio:2')!
+    expect(rowAt(rows, RULER_H + lane2.y + 3)?.key).toBe('audio:2')
+    const l = layoutTimeline(p, 0.1, 0)
+    expect(hitTest(l, rows, HEADER_W + 50, RULER_H + lane2.y + 5)).toEqual({ id: 'a_x', zone: 'body' })
+  })
+  it('a project with no audio still has one music row', () => {
+    const p = build(); p.audio = []
+    expect(trackRows(p).map((r) => r.key)).toEqual(['text', 'video', 'audio:0'])
   })
 })

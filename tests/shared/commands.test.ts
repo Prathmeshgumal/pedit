@@ -261,4 +261,12 @@ describe('batch 1 commands', () => {
     s.run({ type: 'moveItem', id: s.p.audio.find((a) => a.lane === 1)!.id, toMs: 100, lane: 2 })
     expect(s.p.audio.find((a) => a.mediaId === 'm_a')).toMatchObject({ lane: 2, startMs: 100 })
   })
+
+  it('addAudio places a sound on the chosen lane without touching the music', () => {
+    const s = setup()
+    s.run({ type: 'setMusic', mediaId: 'm_song' })
+    s.run({ type: 'addAudio', mediaId: 'm_song', startMs: 1000, lane: 1 })
+    expect(s.p.audio.map((a) => [a.lane, a.startMs, a.outMs])).toEqual([[0, 0, 30000], [1, 1000, 30000]])
+    expect(s.err({ type: 'addAudio', mediaId: 'm_song', startMs: 1000, lane: 0 })).toBe('overlap')
+  })
 })
