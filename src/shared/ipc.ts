@@ -1,4 +1,6 @@
-import type { ItemId, MediaId, TextItem } from './model'
+import type { Aspect, ItemId, MediaId, TextItem } from './model'
+
+export interface ExportOptions { aspect: Aspect; resolution: 1080 | 2160; fps: 30 | 60 | 'source'; quality: 'standard' | 'high'; outPath: string }
 import type { Command } from './commands'
 import type { SessionState } from './session'
 
@@ -21,6 +23,11 @@ export interface PeditApi {
   rejectDraft(): Promise<void>
   onMediaProgress(cb: (id: MediaId, stage: ProgressStage, pct: number) => void): () => void
   pathForFile(file: File): string
+  exportVideo(o: ExportOptions): Promise<{ ok: true } | { ok: false; error: string }>
+  cancelExport(): void
+  onExportProgress(cb: (pct: number) => void): () => void
+  pickExportPath(defaultName: string): Promise<string | null>
+  revealFile(path: string): void
   /** Renderer side of main's renderTextPngs: render each text item to PNG bytes. */
   onTextRenderRequest(handler: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, Uint8Array>>): () => void
 }
@@ -42,5 +49,10 @@ export const CH = {
   rejectDraft: 'session:reject',
   mediaProgress: 'media:progress',
   textRender: 'text:render',
+  exportVideo: 'export:run',
+  cancelExport: 'export:cancel',
+  exportProgress: 'export:progress',
+  pickExportPath: 'export:pick',
+  revealFile: 'shell:reveal',
   textRendered: 'text:rendered'
 } as const

@@ -1,4 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { runExport, exportTempDir } from './export/run'
+import { detectEncoders } from './media/ffmpeg'
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { CH } from '../shared/ipc'
@@ -6,6 +9,7 @@ import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { renderTextPngs } from './textBridge'
 import type { TextItem } from '../shared/model'
+import type { ExportOptions } from '../shared/ipc'
 
 registerMediaScheme()
 // An editor keeps playing smoothly even when partly covered by other windows.
@@ -57,6 +61,36 @@ function registerIpc(): void {
     if (!r.canceled && r.filePaths[0]) await editor.relink(id, r.filePaths[0])
   })
   ipcMain.on(CH.selectMedia, (_e, id: string | null) => editor.select(id))
+
+  let exporting: AbortController | null = null
+  ipcMain.handle(CH.exportVideo, async (_e, o: ExportOptions) => {
+    const st = editor.state()
+    if (!st) return { ok: false, error: 'No project open' }
+    if (exporting) return { ok: false, error: 'An export is already running' }
+    exporting = new AbortController()
+    const tmp = await exportTempDir()
+    try {
+      await runExport(st.real, o, {
+        renderTextPngs: (items, w, h) => renderTextPngs(win!.webContents, items, w, h, tmp),
+        enc: await detectEncoders(),
+        onProgress: (pct) => send(CH.exportProgress, pct),
+        signal: exporting.signal
+      })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    } finally {
+      exporting = null
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+  ipcMain.on(CH.cancelExport, () => exporting?.abort())
+  ipcMain.handle(CH.pickExportPath, async (_e, name: string) => {
+    const r = await dialog.showSaveDialog(win!, { title: 'Export video', defaultPath: join(app.getPath('videos'), name), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] })
+    if (r.canceled || !r.filePath) return null
+    return r.filePath.toLowerCase().endsWith('.mp4') ? r.filePath : `${r.filePath}.mp4`
+  })
+  ipcMain.on(CH.revealFile, (_e, p: string) => shell.showItemInFolder(p))
 }
 
 async function createWindow(): Promise<void> {

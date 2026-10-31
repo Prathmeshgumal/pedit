@@ -25,6 +25,11 @@ const api: PeditApi = {
   rejectDraft: () => ipcRenderer.invoke(CH.rejectDraft),
   onMediaProgress: (cb) => on(CH.mediaProgress, cb),
   pathForFile: (file) => webUtils.getPathForFile(file),
+  exportVideo: (o) => ipcRenderer.invoke(CH.exportVideo, o),
+  cancelExport: () => ipcRenderer.send(CH.cancelExport),
+  onExportProgress: (cb) => on(CH.exportProgress, cb),
+  pickExportPath: (name) => ipcRenderer.invoke(CH.pickExportPath, name),
+  revealFile: (path) => ipcRenderer.send(CH.revealFile, path),
   onTextRenderRequest: (handler) => on(CH.textRender, async (reqId: number, items: TextItem[], w: number, h: number) => {
     try { ipcRenderer.send(CH.textRendered, reqId, await handler(items, w, h), null) }
     catch (e) { ipcRenderer.send(CH.textRendered, reqId, null, String(e)) }
