@@ -35,7 +35,7 @@ async function call(name, args) {
   const r = await client.callTool({ name, arguments: args })
   const text = r.content.map((c) => c.text).join('\n')
   out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: !!r.isError, content: [{ type: 'text', text }] }] }, session_id: sessionId })
-  if (mode === 'slow') await sleep(10000)
+  if (mode === 'slow' && !name.startsWith('get_') && name !== 'list_media') await sleep(10000)
   if (mode === 'crash' && n === 2) process.exit(1)
   return text
 }

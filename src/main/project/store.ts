@@ -5,7 +5,8 @@ import { emptyProject, type MediaId, type Project } from '../../shared/model'
 import { applyCommand } from '../../shared/commands'
 import { randomIds } from '../../shared/ids'
 
-export interface ChatEntry { at: string; role: 'user' | 'assistant' | 'step' | 'system'; text: string }
+import type { ChatEntry } from '../../shared/ipc'
+export type { ChatEntry } from '../../shared/ipc'
 
 async function writeAtomic(path: string, data: string): Promise<void> {
   const tmp = `${path}.tmp`

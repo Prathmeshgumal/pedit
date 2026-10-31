@@ -4,6 +4,16 @@ export interface ExportOptions { aspect: Aspect; resolution: 1080 | 2160; fps: 3
 import type { Command } from './commands'
 import type { SessionState } from './session'
 
+export interface ChatEntry { at: string; role: 'user' | 'assistant' | 'step' | 'system'; text: string }
+export type ChatEvent =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; id: string; name: string; input: unknown }
+  | { kind: 'toolResult'; id: string; ok: boolean; text: string }
+  | { kind: 'done'; sessionId: string | null; ok: boolean; error?: 'not_installed' | 'not_logged_in' | 'usage_limit' | 'stopped' | 'crashed'; message?: string; usage?: unknown }
+export interface ClaudeStatus { ok: boolean; reason?: string; version?: string }
+/** Tools that only read; the chat shows them dimmed. */
+export const READ_TOOLS: Record<string, string> = { get_timeline: 'looked at the timeline', list_media: 'looked at your media', get_project_settings: 'looked at the settings' }
+
 export type ProgressStage = 'thumb' | 'filmstrip' | 'waveform' | 'proxy'
 
 export interface PeditApi {
@@ -28,6 +38,11 @@ export interface PeditApi {
   onExportProgress(cb: (pct: number) => void): () => void
   pickExportPath(defaultName: string): Promise<string | null>
   revealFile(path: string): void
+  sendChat(text: string, tags: Array<{ name: string; mediaId: string }>): Promise<void>
+  stopChat(): void
+  onChatEvent(cb: (e: ChatEvent) => void): () => void
+  chatHistory(): Promise<ChatEntry[]>
+  claudeStatus(): Promise<ClaudeStatus>
   /** Renderer side of main's renderTextPngs: render each text item to PNG bytes. */
   onTextRenderRequest(handler: (items: TextItem[], w: number, h: number) => Promise<Record<ItemId, Uint8Array>>): () => void
 }
@@ -49,6 +64,11 @@ export const CH = {
   rejectDraft: 'session:reject',
   mediaProgress: 'media:progress',
   textRender: 'text:render',
+  sendChat: 'chat:send',
+  stopChat: 'chat:stop',
+  chatEvent: 'chat:event',
+  chatHistory: 'chat:history',
+  claudeStatus: 'claude:status',
   exportVideo: 'export:run',
   cancelExport: 'export:cancel',
   exportProgress: 'export:progress',

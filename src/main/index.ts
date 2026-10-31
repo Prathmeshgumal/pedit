@@ -9,6 +9,7 @@ import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { renderTextPngs } from './textBridge'
 import { startMcpServer, type McpHandle } from './mcp/server'
+import { ChatController } from './chat'
 import type { TextItem } from '../shared/model'
 import type { ExportOptions } from '../shared/ipc'
 
@@ -27,21 +28,28 @@ const editor = new Editor({
 })
 
 const lastFile = (): string => join(app.getPath('userData'), 'last-project.json')
+const guidePath = (): string => app.isPackaged ? join(process.resourcesPath, 'editor-guide.md') : join(app.getAppPath(), 'src/main/claude/editor-guide.md')
+const chat = new ChatController(editor, { mcpConfig: () => mcpConfigPath(), get guide() { return guidePath() } }, (e) => send(CH.chatEvent, e))
+
 function rememberProject(): void {
   if (editor.store) writeFileSync(lastFile(), JSON.stringify({ dir: editor.store.dir }))
 }
 
 function registerIpc(): void {
-  ipcMain.handle(CH.newProject, async (_e, dir: string, name: string) => { await editor.newProject(dir, name); rememberProject() })
-  ipcMain.handle(CH.openProject, async (_e, dir: string) => { await editor.openProject(dir); rememberProject() })
+  ipcMain.handle(CH.newProject, async (_e, dir: string, name: string) => { await editor.newProject(dir, name); chat.resetProject(); rememberProject() })
+  ipcMain.handle(CH.openProject, async (_e, dir: string) => { await editor.openProject(dir); chat.resetProject(); rememberProject() })
   ipcMain.handle(CH.getState, () => editor.state())
   ipcMain.handle(CH.edit, (_e, cmd) => {
     try { return { ok: true, summary: editor.apply(cmd) } } catch (err) { return { ok: false, error: (err as Error).message } }
   })
   ipcMain.handle(CH.undo, () => editor.session?.undo())
   ipcMain.handle(CH.redo, () => editor.session?.redo())
-  ipcMain.handle(CH.acceptDraft, () => editor.session?.acceptDraft())
-  ipcMain.handle(CH.rejectDraft, () => editor.session?.rejectDraft())
+  ipcMain.handle(CH.acceptDraft, () => { if (editor.session?.state().draftActive) { editor.session.acceptDraft(); chat.noteDraftOutcome('accepted') } })
+  ipcMain.handle(CH.rejectDraft, () => { if (editor.session?.state().draftActive) { editor.session.rejectDraft(); chat.noteDraftOutcome('rejected') } })
+  ipcMain.handle(CH.sendChat, (_e, text: string, tags: Array<{ name: string; mediaId: string }>) => chat.send(text, tags))
+  ipcMain.on(CH.stopChat, () => chat.stop())
+  ipcMain.handle(CH.chatHistory, () => chat.history())
+  ipcMain.handle(CH.claudeStatus, () => chat.status())
   ipcMain.handle(CH.pickProjectDir, async (_e, mode: 'new' | 'open') => {
     if (mode === 'new') {
       const r = await dialog.showSaveDialog(win!, { title: 'New project', defaultPath: 'My Project.pedit', buttonLabel: 'Create' })
@@ -129,6 +137,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', (e) => {
   if ((app as unknown as { _flushed?: boolean })._flushed) return
   e.preventDefault()
+  chat.stop()
   void Promise.allSettled([editor.flush(), mcp?.close()]).finally(() => { (app as unknown as { _flushed?: boolean })._flushed = true; app.quit() })
 })
 app.on('window-all-closed', () => app.quit())
