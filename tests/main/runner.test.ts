@@ -54,6 +54,11 @@ describe('ClaudeRunner', () => {
     expect((await collect(runner(), 'x')).at(-1)).toMatchObject({ kind: 'done', ok: false, error: 'not_logged_in' })
   })
 
+  it('reports not_logged_in when Claude only prints it on stderr and exits', async () => {
+    process.env.FAKE_CLAUDE_MODE = 'not_logged_in_stderr'
+    expect((await collect(runner(), 'x')).at(-1)).toMatchObject({ kind: 'done', ok: false, error: 'not_logged_in' })
+  })
+
   it('reports crashed when the process dies without a result', async () => {
     process.env.FAKE_CLAUDE_MODE = 'crash'
     expect((await collect(runner(), 'x')).at(-1)).toMatchObject({ kind: 'done', ok: false, error: 'crashed' })

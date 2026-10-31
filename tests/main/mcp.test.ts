@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { emptyProject, type MediaItem } from '@shared/model'
@@ -44,6 +44,13 @@ describe('pedit MCP server', () => {
     const f = join(mkdtempSync(join(tmpdir(), 'mcp-')), 'mcp.json')
     await h.writeConfig(f)
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({ mcpServers: { pedit: { type: 'http', url: h.url, headers: { Authorization: `Bearer ${h.token}` } } } })
+  })
+
+  it('makes an existing, readable config private when it rewrites it', async () => {
+    const f = join(mkdtempSync(join(tmpdir(), 'mcp-')), 'mcp.json')
+    writeFileSync(f, '{}', { mode: 0o644 })
+    await h.writeConfig(f)
+    expect(statSync(f).mode & 0o777).toBe(0o600)
   })
 
   it('lists exactly the editor tools', async () => {

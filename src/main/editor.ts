@@ -8,6 +8,7 @@ import { ProjectStore } from './project/store'
 import { MediaPipeline, importPaths } from './media/jobs'
 import { detectEncoders } from './media/ffmpeg'
 import { randomIds } from '../shared/ids'
+import { probe } from './media/probe'
 
 type Listener = { state(s: SessionState | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
 
@@ -45,7 +46,12 @@ export class Editor {
 
   async relink(id: MediaId, path: string): Promise<void> {
     const { session } = this.need()
-    session.apply({ type: 'updateMedia', id, patch: { path, status: 'processing', error: undefined } }, 'user')
+    let info: Awaited<ReturnType<typeof probe>>
+    try { info = await probe(path) } catch (e) {
+      session.apply({ type: 'updateMedia', id, patch: { path, status: 'error', error: `could not read this file: ${(e as Error).message}` } }, 'user')
+      return
+    }
+    session.apply({ type: 'updateMedia', id, patch: { ...info, path, status: 'processing', error: undefined } }, 'user')
     const m = session.state().real.media.find((x) => x.id === id)
     if (m) this.pipeline!.enqueue(m)
   }

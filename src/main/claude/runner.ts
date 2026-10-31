@@ -1,6 +1,6 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { parseStreamLine, type RunnerEvent } from './stream'
+import { classifyError, parseStreamLine, type RunnerEvent } from './stream'
 
 export type { RunnerEvent } from './stream'
 
@@ -87,7 +87,7 @@ export class ClaudeRunner {
         if (this.stopped) emit({ kind: 'done', sessionId: lastSession, ok: false, error: 'stopped', message: 'Stopped' })
         else if (!finished) {
           const tail = stderr.trim().split('\n').slice(-3).join('\n')
-          emit({ kind: 'done', sessionId: lastSession, ok: false, error: 'crashed', message: tail || `Claude exited (${signal ?? `code ${code}`})` })
+          emit({ kind: 'done', sessionId: lastSession, ok: false, error: tail ? classifyError(tail) : 'crashed', message: tail || `Claude exited (${signal ?? `code ${code}`})` })
         }
         resolve()
       })

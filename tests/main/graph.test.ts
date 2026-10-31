@@ -38,6 +38,10 @@ describe('export graph', () => {
     const fc = args[args.indexOf('-filter_complex') + 1]
     expect(count(fc, TONEMAP_VF)).toBe(1)
     expect(count(fc, 'anullsrc')).toBe(1)
+    // 4K120 HDR: frames are dropped and shrunk before the slow tone-mapping
+    const hdr = fc.split(';')[0]
+    expect(hdr.indexOf('fps=')).toBeLessThan(hdr.indexOf(TONEMAP_VF))
+    expect(hdr.indexOf('crop=')).toBeLessThan(hdr.indexOf(TONEMAP_VF))
     expect(fc).toContain('concat=n=2:v=1:a=1')
     expect(fc).toContain('volume=0.5')
     expect(args).toContain("/v/Tōkyō day 1 'final'.mov") // separate argv entry, no shell quoting

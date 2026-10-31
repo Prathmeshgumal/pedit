@@ -98,6 +98,21 @@ export class EditSession {
     return { ...r, project: this.real }
   }
 
+  /** Claude's edits: open a draft on the first one (only if it succeeds), then apply into it. */
+  applyToDraft(cmd: Command, source: Source, expectedRevision?: number): CommandResult {
+    if (this.draft || isMediaCmd(cmd)) return this.apply(cmd, source, expectedRevision)
+    const current = this.real.revision
+    if (expectedRevision !== undefined && expectedRevision !== current) throw new RevisionMismatch(expectedRevision, current)
+    const r = applyCommand(this.real, cmd, this.ids) // throws before any draft exists
+    this.draft = structuredClone(this.real)
+    this.draftUndo = [snap(this.draft)]
+    this.draftRedo = []
+    this.draft = r.project
+    this.draftRev = this.bump()
+    this.emit()
+    return r
+  }
+
   undo(): void { this.step(true) }
   redo(): void { this.step(false) }
 

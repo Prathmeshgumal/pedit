@@ -103,3 +103,22 @@ describe('EditSession', () => {
     expect(() => s.apply({ type: 'addClip', mediaId: 'm_a' }, 'claude', 1)).toThrow(RevisionMismatch)
   })
 })
+
+describe('applyToDraft (Claude edits)', () => {
+  it('opens the draft with the first edit and undo goes back to the real timeline', () => {
+    const s = fresh()
+    const rev = s.state().viewRevision
+    s.applyToDraft({ type: 'addClip', mediaId: 'm_a' }, 'claude', rev)
+    expect(s.state()).toMatchObject({ draftActive: true, canUndo: true })
+    expect(s.state().view.video).toHaveLength(1)
+    s.undo()
+    expect(s.state().view.video).toHaveLength(0)
+    expect(s.state().draftActive).toBe(true)
+  })
+  it('a failed first edit leaves no draft', () => {
+    const s = fresh()
+    expect(() => s.applyToDraft({ type: 'removeItem', id: 'nope' }, 'claude')).toThrow()
+    expect(() => s.applyToDraft({ type: 'addClip', mediaId: 'm_a' }, 'claude', 999)).toThrow(RevisionMismatch)
+    expect(s.state().draftActive).toBe(false)
+  })
+})

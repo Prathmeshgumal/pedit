@@ -37,8 +37,7 @@ export function registerTools(server: McpServer, getSession: () => EditSession |
       if (!s) return err('no project open')
       const { expectedRevision, ...rest } = args as { expectedRevision: number } & Record<string, unknown>
       try {
-        s.startDraft()
-        const r = s.apply(toCmd(rest as z.infer<z.ZodObject<S>>), 'claude', expectedRevision)
+        const r = s.applyToDraft(toCmd(rest as z.infer<z.ZodObject<S>>), 'claude', expectedRevision)
         return ok(`${r.summary} · rev ${s.state().viewRevision}`)
       } catch (e) {
         if (e instanceof RevisionMismatch) return err(`${e.message} — call get_timeline and retry`)

@@ -22,6 +22,11 @@ if (process.env.FAKE_CLAUDE_FAIL_RESUME && flag('--resume')) {
   process.exit(1)
 }
 
+if (mode === 'not_logged_in_stderr') {
+  process.stderr.write('Invalid API key · Please run /login\n')
+  process.exit(1)
+}
+
 out({ type: 'system', subtype: 'init', session_id: sessionId, tools: [], mcp_servers: [{ name: 'pedit', status: 'connected' }] })
 
 if (mode === 'not_logged_in') {
@@ -51,7 +56,9 @@ const tl = await call('get_timeline', {})
 const media = mediaLines(await call('list_media', {}))
 let rev = revOf(tl)
 
-if (mode === 'demo') {
+if (mode === 'question') {
+  out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `You have ${media.length} clips.` }] }, session_id: sessionId })
+} else if (mode === 'demo') {
   // every day1 video clip in capture order, 3s each; title; music; vertical
   for (const m of media.filter((x) => x.folder === 'day1' && !x.audioOnly)) rev = revOf(await call('add_clip', { mediaId: m.id, inMs: 0, outMs: 3000, expectedRevision: rev }))
   rev = revOf(await call('add_text', { text: 'Tokyo', startMs: 0, durationMs: 2000, expectedRevision: rev }))

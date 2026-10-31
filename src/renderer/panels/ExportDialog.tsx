@@ -5,7 +5,8 @@ import { useUi } from '../store'
 type Phase = { kind: 'setup' } | { kind: 'running'; pct: number } | { kind: 'done'; path: string } | { kind: 'error'; msg: string }
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
-  const project = useUi((s) => s.project)!
+  // export renders the accepted timeline, so its format and fps are the defaults (not a pending draft's)
+  const project = useUi((s) => s.session?.real ?? s.project)!
   const draftActive = useUi((s) => s.session?.draftActive ?? false)
   const [o, setO] = useState<ExportOptions>({ aspect: project.settings.aspect, resolution: 1080, fps: project.settings.fps, quality: 'standard', outPath: '' })
   const [phase, setPhase] = useState<Phase>({ kind: 'setup' })

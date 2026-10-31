@@ -97,8 +97,15 @@ function clampTrim(item: { inMs: number; outMs: number }, media: MediaItem, inMs
 }
 
 /** Pure: returns a new project, never mutates `p`, never changes `revision`. */
-export function applyCommand(p: Project, cmd: Command, ids: IdGen): CommandResult {
+export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResult {
   const n = structuredClone(p)
+  const taken = new Set<string>([...n.media, ...n.video, ...n.text, ...n.audio].map((x) => x.id))
+  const ids: IdGen = (prefix) => {
+    let id = gen(prefix)
+    while (taken.has(id)) id = gen(prefix)
+    taken.add(id)
+    return id
+  }
   const done = (summary: string, affected: ItemId[]): CommandResult => ({ project: n, summary, affected })
 
   switch (cmd.type) {
@@ -152,7 +159,15 @@ export function applyCommand(p: Project, cmd: Command, ids: IdGen): CommandResul
       if (track === 'text') fail('invalid', 'use updateText to change text timing')
       const item = n[track][index] as VideoItem | AudioItem
       const was = dur(item)
+      const oldIn = item.inMs
       Object.assign(item, clampTrim(item, findMedia(n, item.mediaId), cmd.inMs, cmd.outMs))
+      if (track === 'audio') {
+        // left-edge trim on music: the rest of the song stays where it was against the picture
+        let start = item.startMs + (item.inMs - oldIn)
+        if (start < 0) { item.inMs -= start; start = 0 }
+        item.startMs = start
+        if (dur(item) < MIN_ITEM_MS) fail('invalid', `resulting length ${dur(item)}ms is shorter than ${MIN_ITEM_MS}ms`)
+      }
       if (track === 'video') ripple(n.video)
       else assertNoOverlap(audioSpans(n.audio), 'music')
       return done(`trimmed ${itemName(n, cmd.id)} to ${fmtTime(dur(item))} (was ${fmtTime(was)})`, [cmd.id])

@@ -20,6 +20,7 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding')
 
 let win: BrowserWindow | null = null
 let mcp: McpHandle | null = null
+let exporting: { ac: AbortController; done: Promise<unknown> } | null = null
 const mcpConfigPath = (): string => join(app.getPath('userData'), 'mcp.json')
 const send = (ch: string, ...args: unknown[]): void => { if (win && !win.isDestroyed()) win.webContents.send(ch, ...args) }
 const editor = new Editor({
@@ -77,29 +78,31 @@ function registerIpc(): void {
   })
   ipcMain.on(CH.selectMedia, (_e, id: string | null) => editor.select(id))
 
-  let exporting: AbortController | null = null
   ipcMain.handle(CH.exportVideo, async (_e, o: ExportOptions) => {
     const st = editor.state()
     if (!st) return { ok: false, error: 'No project open' }
     if (exporting) return { ok: false, error: 'An export is already running' }
-    exporting = new AbortController()
-    const tmp = await exportTempDir()
-    try {
-      await runExport(st.real, o, {
-        renderTextPngs: (items, w, h) => renderTextPngs(win!.webContents, items, w, h, tmp),
-        enc: await detectEncoders(),
-        onProgress: (pct) => send(CH.exportProgress, pct),
-        signal: exporting.signal
-      })
-      return { ok: true }
-    } catch (err) {
-      return { ok: false, error: (err as Error).message }
-    } finally {
-      exporting = null
-      await rm(tmp, { recursive: true, force: true })
-    }
+    const ac = new AbortController()
+    const job = (async () => {
+      const tmp = await exportTempDir()
+      try {
+        await runExport(st.real, o, {
+          renderTextPngs: (items, w, h) => renderTextPngs(win!.webContents, items, w, h, tmp),
+          enc: await detectEncoders(),
+          onProgress: (pct) => send(CH.exportProgress, pct),
+          signal: ac.signal
+        })
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      } finally {
+        await rm(tmp, { recursive: true, force: true })
+      }
+    })()
+    exporting = { ac, done: job }
+    try { return await job } finally { exporting = null }
   })
-  ipcMain.on(CH.cancelExport, () => exporting?.abort())
+  ipcMain.on(CH.cancelExport, () => exporting?.ac.abort())
   ipcMain.handle(CH.pickExportPath, async (_e, name: string) => {
     const r = await dialog.showSaveDialog(win!, { title: 'Export video', defaultPath: join(app.getPath('videos'), name), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] })
     if (r.canceled || !r.filePath) return null
@@ -142,6 +145,7 @@ app.on('before-quit', (e) => {
   if ((app as unknown as { _flushed?: boolean })._flushed) return
   e.preventDefault()
   chat.stop()
-  void Promise.allSettled([editor.flush(), mcp?.close()]).finally(() => { (app as unknown as { _flushed?: boolean })._flushed = true; app.quit() })
+  exporting?.ac.abort()
+  void Promise.allSettled([editor.flush(), mcp?.close(), exporting?.done]).finally(() => { (app as unknown as { _flushed?: boolean })._flushed = true; app.quit() })
 })
 app.on('window-all-closed', () => app.quit())

@@ -98,12 +98,39 @@ describe('text and music tracks', () => {
     expect(s.p.audio).toHaveLength(1)
     expect(s.p.audio[0]).toMatchObject({ startMs: 0, inMs: 1000, outMs: 30000, volume: 0.8 })
   })
+  it('trimming the left edge of music keeps the rest of the song in place', () => {
+    const s = setup()
+    s.run({ type: 'setMusic', mediaId: 'm_song' })
+    s.run({ type: 'moveItem', id: 'a_000001', toMs: 2000 })
+    s.run({ type: 'trimItem', id: 'a_000001', inMs: 3000 })
+    expect(s.p.audio[0]).toMatchObject({ startMs: 5000, inMs: 3000, outMs: 30000 })
+    s.run({ type: 'trimItem', id: 'a_000001', inMs: 0 })
+    expect(s.p.audio[0]).toMatchObject({ startMs: 2000, inMs: 0 })
+  })
+  it('cannot drag music start before the timeline start', () => {
+    const s = setup()
+    s.run({ type: 'setMusic', mediaId: 'm_song', inMs: 5000 })
+    s.run({ type: 'moveItem', id: 'a_000001', toMs: 1000 })
+    s.run({ type: 'trimItem', id: 'a_000001', inMs: 0 })
+    expect(s.p.audio[0]).toMatchObject({ startMs: 0, inMs: 4000 })
+  })
   it('setVolume is limited to 0..2', () => {
     const s = setup()
     s.run({ type: 'addClip', mediaId: 'm_a' })
     expect(s.err({ type: 'setVolume', id: 'c_000001', volume: 3 })).toBe('invalid')
     s.run({ type: 'setVolume', id: 'c_000001', volume: 0.5 })
     expect(s.p.video[0].volume).toBe(0.5)
+  })
+})
+
+describe('ids', () => {
+  it('never reuses an id that is already on the timeline', () => {
+    const s = setup()
+    s.run({ type: 'addClip', mediaId: 'm_a' })
+    let calls = 0
+    const dup: IdGen = (pre) => (++calls === 1 ? `${pre}_000001` : `${pre}_fresh${calls}`)
+    const r = applyCommand(s.p, { type: 'addClip', mediaId: 'm_b' }, dup)
+    expect(r.project.video.map((v) => v.id)).toEqual(['c_000001', 'c_fresh2'])
   })
 })
 

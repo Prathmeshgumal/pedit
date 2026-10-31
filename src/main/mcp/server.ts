@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { chmod, rename, writeFile } from 'node:fs/promises'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { EditSession } from '../../shared/session'
@@ -45,6 +45,12 @@ export async function startMcpServer(getSession: () => EditSession | null): Prom
   return {
     url, token, port,
     close: () => new Promise((r) => { http.closeAllConnections(); http.close(() => r()) }),
-    writeConfig: (file) => writeFile(file, JSON.stringify({ mcpServers: { pedit: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2), { mode: 0o600 })
+    // write a fresh private file and swap it in, so the token is never in a file others can read
+    writeConfig: async (file) => {
+      const tmp = `${file}.${process.pid}.tmp`
+      await writeFile(tmp, JSON.stringify({ mcpServers: { pedit: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2), { mode: 0o600 })
+      await chmod(tmp, 0o600)
+      await rename(tmp, file)
+    }
   }
 }

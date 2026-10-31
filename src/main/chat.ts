@@ -7,13 +7,15 @@ import { ClaudeRunner, buildTurnPrompt, type TurnContext } from './claude/runner
 export class ChatController {
   private runner: ClaudeRunner | null = null
   private starting = false
+  /** True from the moment a turn is claimed until its chat log and draft cleanup are saved. */
+  private busy = false
   private stopRequested = false
   private lastDraft: TurnContext['lastDraft'] = null
 
   constructor(private editor: Editor, private paths: { mcpConfig: () => string; guide: string }, private emit: (e: ChatEvent) => void) {}
 
   status(): Promise<ClaudeStatus> { return this.makeRunner('.').check() }
-  get running(): boolean { return this.starting || (this.runner?.running ?? false) }
+  get running(): boolean { return this.busy || this.starting || (this.runner?.running ?? false) }
 
   noteDraftOutcome(outcome: 'accepted' | 'rejected'): void { this.lastDraft = outcome }
   resetProject(): void { this.lastDraft = null }
@@ -32,6 +34,7 @@ export class ChatController {
     const store = this.editor.store, session = this.editor.session
     if (!store || !session) throw new Error('no project open')
     if (this.running) throw new Error('Claude is already working')
+    this.busy = true
     this.starting = true // claim the turn before any await so a second send can't slip in
     this.stopRequested = false
     const now = (): string => new Date().toISOString()
@@ -39,8 +42,8 @@ export class ChatController {
     const internal = new Set<string>() // Claude Code's own tools (e.g. ToolSearch) aren't shown
     const log: ChatEntry[] = []
     const hadDraft = session.state().draftActive
+    let finished: Extract<ChatEvent, { kind: 'done' }> | null = null
     try {
-      session.startDraft()
       const ctx: TurnContext = { lastDraft: hadDraft ? 'pending' : this.lastDraft, userEdits: session.takeUserEditsSinceLastTurn(), tags }
       this.lastDraft = null
       await store.appendChat({ at: now(), role: 'user', text })
@@ -73,15 +76,18 @@ export class ChatController {
       const d = r.done ?? { kind: 'done' as const, sessionId: null, ok: false, error: 'crashed' as const }
       if (d.ok && d.sessionId) await store.setClaudeSessionId(d.sessionId)
       if (!d.ok) log.push({ at: now(), role: 'system', text: errorText(d.error, d.message) })
-      this.emit(d.ok || !d.sessionId ? d : { ...d, sessionId: null })
+      finished = d.ok || !d.sessionId ? d : { ...d, sessionId: null }
     } finally {
       this.starting = false
-      for (const entry of log) await store.appendChat(entry)
+      try { for (const entry of log) await store.appendChat(entry) } catch (e) { console.error('could not save chat', e) }
       // a turn that changed nothing (e.g. a question) leaves no empty draft behind
       const st = session.state()
       if (st.draftActive && st.diff && !st.diff.added.length && !st.diff.removed.length && !st.diff.changed.length && !hadDraft
         && JSON.stringify(st.view.settings) === JSON.stringify(st.real.settings)) session.rejectDraft()
       this.runner = null
+      this.busy = false
+      // only now: the window treats 'done' as "you can Accept/Reject/send again"
+      this.emit(finished ?? { kind: 'done', sessionId: null, ok: false, error: 'crashed' })
     }
   }
 

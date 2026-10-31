@@ -1,0 +1,42 @@
+import { describe, it, expect } from 'vitest'
+import { mkdtempSync, copyFileSync, rmSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Editor } from '../../src/main/editor'
+import { f } from './fixtures'
+
+const quiet = { state: () => {}, progress: () => {} }
+
+describe('Editor.relink', () => {
+  it('reads the new file again so length and rotation match it', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'pedit-ed-'))
+    mkdirSync(join(base, 'm'))
+    const copy = join(base, 'm', 'clip.mp4')
+    copyFileSync(f('day1/h264_1080p30.mp4'), copy)
+    const ed = new Editor(quiet)
+    await ed.newProject(join(base, 'P.pedit'), 'P')
+    await ed.importPaths([copy])
+    const before = ed.state()!.real.media[0]
+    rmSync(copy)
+    await ed.relink(before.id, f('day2/portrait_rot90.mp4'))
+    const after = ed.state()!.real.media[0]
+    expect(after.id).toBe(before.id)
+    expect(after.path).toBe(f('day2/portrait_rot90.mp4'))
+    expect(after.rotation).not.toBe(before.rotation)
+    expect(after.folder).toBe(before.folder)
+    await ed.flush()
+  }, 60000)
+
+  it('marks the clip as failed when the new file is not a video', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'pedit-ed-'))
+    const ed = new Editor(quiet)
+    await ed.newProject(join(base, 'P.pedit'), 'P')
+    await ed.importPaths([f('day1/h264_1080p30.mp4')])
+    const id = ed.state()!.real.media[0].id
+    const bad = join(base, 'notes.mp4')
+    copyFileSync(join(base, 'P.pedit', 'project.json'), bad)
+    await ed.relink(id, bad)
+    expect(ed.state()!.real.media[0]).toMatchObject({ status: 'error' })
+    await ed.flush()
+  }, 60000)
+})

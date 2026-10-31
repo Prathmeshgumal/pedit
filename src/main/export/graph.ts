@@ -48,7 +48,8 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
     const dur = sec(v.outMs - v.inMs)
     if (m.kind === 'image') args.push('-loop', '1', '-framerate', String(fps), '-t', dur, '-i', m.path)
     else args.push('-ss', sec(v.inMs), '-t', dur, '-i', m.path)
-    const vf = [...(isHdr(m) ? [TONEMAP_VF] : []), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, `fps=${fps}`, 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
+    // drop frames and shrink first: tone-mapping 4K120 HDR at full size is the slow part
+    const vf = [`fps=${fps}`, `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
     fc.push(`[${n}:v]${vf.join(',')}[v${i}]`)
     if (m.hasAudio && m.kind === 'video') fc.push(`[${n}:a]${AFMT},atrim=duration=${dur},apad=whole_dur=${dur},asetpts=PTS-STARTPTS,volume=${v.volume}[a${i}]`)
     else fc.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${dur},${AFMT}[a${i}]`)

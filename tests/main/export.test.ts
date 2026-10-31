@@ -8,17 +8,18 @@ import { detectEncoders, ffmpegPath, ffprobePath, type EncoderInfo } from '../..
 import { probe } from '../../src/main/media/probe'
 import { runExport, type ExportOptions } from '../../src/main/export/run'
 import { f } from './fixtures'
+import { TONEMAP_VF } from '../../src/main/media/color'
 
 let enc: EncoderInfo
 const media = async (rel: string, id: string): Promise<MediaItem> => ({ ...(await probe(f(rel))), id, folder: '', importIndex: 0, status: 'ready' })
 
 /** Stand-in for the renderer: a transparent full frame with a white box in the middle (the "text"). */
-async function fakeText(items: TextItem[], w: number, h: number, dir: string): Promise<Record<string, string>> {
+async function fakeText(items: TextItem[], w: number, h: number, dir: string, color = 'white'): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   for (const t of items) {
     const p = join(dir, `${t.id}.png`)
     execFileSync(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', `color=c=black@0.0:s=${w}x${h},format=rgba`,
-      '-f', 'lavfi', '-i', 'color=c=white:s=400x120,format=rgba',
+      '-f', 'lavfi', '-i', `color=c=${color}:s=400x120,format=rgba`,
       '-filter_complex', `[0][1]overlay=${w / 2 - 200}:${h / 2 - 60}:format=rgb`, '-frames:v', '1', p])
     out[t.id] = p
   }
@@ -80,6 +81,34 @@ describe('runExport', () => {
     expect(diff(ref(false))).toBeLessThan(15)
     expect(diff(ref(true))).toBeGreaterThan(diff(ref(false)) * 2)
   }, 180000)
+
+  it('text keeps its colour in the exported file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const p = await reel(); p.video = [p.video[1]]; p.video[0].startMs = 0; p.audio = []
+    const out = join(dir, 'col.mp4')
+    await runExport(p, { aspect: '16:9', resolution: 1080, fps: 30, quality: 'high', outPath: out },
+      { renderTextPngs: (i, w, h) => fakeText(i, w, h, dir, '0x00c000'), enc, onProgress: () => {}, signal: new AbortController().signal })
+    // decode the way a player does for a file tagged bt709
+    const rgb = execFileSync(ffmpegPath(), ['-v', 'error', '-ss', '1', '-i', out, '-frames:v', '1', '-vf', 'scale=in_color_matrix=bt709:in_range=tv,format=rgb24', '-f', 'rawvideo', '-'], { maxBuffer: 64 << 20 })
+    const px = (1080 / 2) * 1920 + 1920 / 2
+    const [r, g, b] = [rgb[px * 3], rgb[px * 3 + 1], rgb[px * 3 + 2]]
+    expect(Math.abs(g - 0xc0)).toBeLessThan(6)
+    expect(r).toBeLessThan(8)
+    expect(b).toBeLessThan(8)
+  }, 120000)
+
+  it('fast HDR export looks the same as tone-mapping at full size', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const p = await reel(); p.video = [p.video[0]]; p.text = []; p.audio = []
+    const out = join(dir, 'hdr.mp4')
+    await runExport(p, { aspect: '16:9', resolution: 1080, fps: 30, quality: 'high', outPath: out },
+      { renderTextPngs: async () => ({}), enc, onProgress: () => {}, signal: new AbortController().signal })
+    const ref = execFileSync(ffmpegPath(), ['-v', 'error', '-ss', '1', '-i', f('day1/hevc_4k120_hlg.mov'), '-frames:v', '1',
+      '-vf', `${TONEMAP_VF},scale=1920:1080`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 64 << 20 })
+    const got = grayFrame(out, 1.0, 1920, 1080)
+    let d = 0; for (let i = 0; i < got.length; i += 53) d += Math.abs(got[i] - ref[i])
+    expect(d / (got.length / 53)).toBeLessThan(6)
+  }, 120000)
 
   it('falls back to libx264 when the hardware encoder fails', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
