@@ -1,3 +1,4 @@
+import { lutFor, vignetteOf } from './looks'
 import { STILL_DEFAULT_MS, timelineDurationMs, type ClipTransform, type MediaItem, type Project, type TextItem } from '@shared/model'
 import { mediaUrl } from '@shared/mediaUrl'
 import { openSource, type MediaSource } from './clipSource'
@@ -222,7 +223,10 @@ export class Player {
 
   private layers(frame: VideoFrame | null, ms = this.shownMs >= 0 ? this.shownMs : this.t): Layer[] {
     const transform = this.mode === 'timeline' ? this.segAt(ms)?.transform : undefined
-    const out: Layer[] = frame ? [{ frame, fit: 'cover', transform }] : []
+    // the look is read from the project (not the segments) so changing it redraws without re-seeking
+    const item = this.mode === 'timeline' ? this.project?.video.find((v) => ms >= v.startMs && ms < v.startMs + v.outMs - v.inMs) : undefined
+    const lut = item?.look ? lutFor(item.look, () => this.requestRedraw()) ?? undefined : undefined
+    const out: Layer[] = frame ? [{ frame, fit: 'cover', transform, lut, vignette: vignetteOf(item?.look) }] : []
     if (this.mode === 'timeline' && this.project && this.textLayers) {
       const texts = this.project.text.filter((x) => this.t >= x.startMs && this.t < x.startMs + x.durationMs)
       if (texts.length) out.push(...this.textLayers(texts, this.canvas.width, this.canvas.height, this.t))

@@ -10,11 +10,13 @@ import { seqIds } from '@shared/ids'
 import { startMcpServer, type McpHandle } from '../../src/main/mcp/server'
 import { FontLibrary } from '../../src/main/library/fonts'
 import { TextStyleLibrary } from '../../src/main/library/textStyles'
+import { FilterLibrary } from '../../src/main/library/filters'
 import { resolve } from 'node:path'
 
 const libs = () => ({
   fonts: new FontLibrary(resolve('resources/fonts'), mkdtempSync(join(tmpdir(), 'mcp-f-')), (async () => new Response('', { status: 400 })) as typeof fetch),
-  textStyles: new TextStyleLibrary(join(mkdtempSync(join(tmpdir(), 'mcp-ts-')), 'ts.json'))
+  textStyles: new TextStyleLibrary(join(mkdtempSync(join(tmpdir(), 'mcp-ts-')), 'ts.json')),
+  filters: ((d) => new FilterLibrary(join(d, 'filters.json'), join(d, 'luts')))(mkdtempSync(join(tmpdir(), 'mcp-fl-')))
 })
 const services = () => ({ lookAtMedia: async () => ({ jpegBase64: '', times: null }), freezeFrame: async () => '', getStory: async () => '', ...libs() })
 
@@ -65,8 +67,8 @@ describe('pedit MCP server', () => {
   it('lists exactly the editor tools', async () => {
     const c = await connect(h.token)
     const names = (await c.listTools()).tools.map((t) => t.name).sort()
-    expect(names).toEqual(['add_captions', 'add_clip', 'add_font', 'add_text', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline',
-      'list_fonts', 'list_media', 'list_text_styles', 'look_at_media', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
+    expect(names).toEqual(['add_captions', 'add_clip', 'add_font', 'add_text', 'adjust_color', 'apply_filter', 'create_filter', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline',
+      'import_lut', 'list_filters', 'list_fonts', 'list_media', 'list_text_styles', 'look_at_media', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
       'set_format', 'set_music', 'set_transform', 'set_volume', 'split_item', 'trim_item', 'update_text'])
   })
 
@@ -130,6 +132,35 @@ describe('pedit MCP server', () => {
     const overlap = await c.callTool({ name: 'add_captions', arguments: { captions: [{ text: 'a', startMs: 100, durationMs: 300 }], expectedRevision: session.state().viewRevision } }) as R
     expect(overlap.isError).toBe(true)
     expect(session.state().view.text).toHaveLength(3)
+  })
+
+  it('creates filters, applies them to clips with a strength, adjusts colour, and shows it in the timeline', async () => {
+    await h.close()
+    h = await startMcpServer(() => session, services())
+    const c = await connect(h.token)
+    expect(text(await c.callTool({ name: 'list_filters', arguments: {} }))).toContain('Cinematic')
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 0 } })
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 1 } })
+    const mk = await c.callTool({ name: 'create_filter', arguments: { name: 'Tokyo night', description: 'cool neon', adjust: { temperature: -30, tint: 12, vignette: 30 } } }) as R
+    expect(mk.isError).toBeFalsy()
+    const ap = await c.callTool({ name: 'apply_filter', arguments: { filter: 'tokyo night', strength: 70, expectedRevision: 2 } }) as R
+    expect(ap.isError).toBeFalsy()
+    const v = session.state().view.video
+    expect(v.every((x) => x.look?.filter?.name === 'Tokyo night' && x.look.filter.strength === 0.7)).toBe(true)
+    expect(v[0].look!.filter!.adjust).toMatchObject({ temperature: -30 })
+    const adj = await c.callTool({ name: 'adjust_color', arguments: { ids: [v[1].id], adjust: { exposure: 20 }, expectedRevision: 3 } }) as R
+    expect(adj.isError).toBeFalsy()
+    expect(session.state().view.video[1].look!.adjust).toEqual({ exposure: 20 })
+    expect(text(await c.callTool({ name: 'get_timeline', arguments: {} }))).toContain('filter Tokyo night 70%')
+    const none = await c.callTool({ name: 'apply_filter', arguments: { filter: 'Nope', expectedRevision: 4 } }) as R
+    expect(text(none)).toContain('list_filters')
+    const off = await c.callTool({ name: 'apply_filter', arguments: { ids: [v[0].id], filter: null, expectedRevision: 4 } }) as R
+    expect(off.isError).toBeFalsy()
+    expect(session.state().view.video[0].look).toBeUndefined()
+    const dir = mkdtempSync(join(tmpdir(), 'mcp-lut-')); const cube = join(dir, 'x.cube')
+    writeFileSync(cube, 'LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n')
+    expect((await c.callTool({ name: 'import_lut', arguments: { name: 'My LUT', path: cube } }) as R).isError).toBeFalsy()
+    expect(text(await c.callTool({ name: 'list_filters', arguments: {} }))).toContain('My LUT [saved, LUT]')
   })
 
   it('look_at_media returns a picture Claude can see, with the frame times', async () => {

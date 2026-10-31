@@ -1,6 +1,7 @@
 import { ASPECT_SIZE, DEFAULT_TEXT_STYLE, IDENTITY_TRANSFORM, MIN_ITEM_MS, STILL_DEFAULT_MS, STILL_MAX_MS, laneOf, type Aspect, type ClipTransform, type AudioItem, type ItemId, type MediaId, type MediaItem,
   type Project, type TextItem, type TextStyle, type VideoItem } from './model'
 import type { IdGen } from './ids'
+import type { Adjust, FilterRef } from './look'
 import { fmtTime } from './time'
 
 export type Command =
@@ -24,6 +25,8 @@ export type Command =
   | { type: 'insertFreeze'; id: ItemId; atMs: number; mediaId: MediaId; durationMs: number }
   | { type: 'replaceClip'; id: ItemId; mediaId: MediaId }
   | { type: 'addAudio'; mediaId: MediaId; startMs: number; lane: number; inMs?: number; outMs?: number; volume?: number }
+  /** Filter (null removes it) and/or adjustments (merged into the clip's; null clears them) for video clips. */
+  | { type: 'setLook'; ids: ItemId[]; filter?: FilterRef | null; adjust?: Adjust | null }
   /** Several edits as one step (one undo); if any fails, none apply. */
   | { type: 'batch'; commands: Command[]; summary?: string }
 
@@ -148,6 +151,21 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
   const done = (summary: string, affected: ItemId[]): CommandResult => ({ project: n, summary, affected })
 
   switch (cmd.type) {
+    case 'setLook': {
+      for (const id of cmd.ids) {
+        const v = n.video.find((x) => x.id === id)
+        if (!v) fail('not_found', `video clip ${id} not found (looks only apply to video clips)`)
+        const look = { ...v!.look }
+        if (cmd.filter !== undefined) look.filter = cmd.filter ? structuredClone(cmd.filter) : null
+        if (cmd.adjust !== undefined) look.adjust = cmd.adjust ? { ...look.adjust, ...cmd.adjust } : undefined
+        if (!look.filter) delete look.filter
+        if (!look.adjust || !Object.keys(look.adjust).length) delete look.adjust
+        if (Object.keys(look).length) v!.look = look; else delete v!.look
+      }
+      const what = cmd.filter ? `filter ${cmd.filter.name}` : cmd.filter === null ? 'removed filter' : 'adjusted colour'
+      return done(`${what} on ${cmd.ids.length} clip${cmd.ids.length === 1 ? '' : 's'}`, cmd.ids)
+    }
+
     case 'addMedia':
       n.media.push(...structuredClone(cmd.items))
       return done(`added ${cmd.items.length} media`, cmd.items.map((m) => m.id))

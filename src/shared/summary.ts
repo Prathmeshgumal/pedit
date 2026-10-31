@@ -12,7 +12,8 @@ export function timelineSummary(p: Project, opts: { draft: boolean; revision: nu
   const block = (title: string, lines: string[]): string => `${title}\n${lines.length ? lines.join('\n') : '  (empty)'}`
   const video = p.video.map((v) => {
     const tf = transformText(v.transform)
-    return `  ${v.id} ${fmtTime(v.startMs)}-${fmtTime(v.startMs + v.outMs - v.inMs)} ${name(v.mediaId)} [src ${fmtTime(v.inMs)}-${fmtTime(v.outMs)}]${v.volume !== 1 ? ` vol ${pct(v.volume)}` : ''}${tf ? ` ${tf}` : ''}`
+    const lk = v.look ? [v.look.filter ? `filter ${v.look.filter.name}${v.look.filter.strength < 1 ? ` ${Math.round(v.look.filter.strength * 100)}%` : ''}` : '', v.look.adjust ? `adjust ${JSON.stringify(v.look.adjust)}` : ''].filter(Boolean).join(' ') : ''
+    return `  ${v.id} ${fmtTime(v.startMs)}-${fmtTime(v.startMs + v.outMs - v.inMs)} ${name(v.mediaId)} [src ${fmtTime(v.inMs)}-${fmtTime(v.outMs)}]${v.volume !== 1 ? ` vol ${pct(v.volume)}` : ''}${tf ? ` ${tf}` : ''}${lk ? ` ${lk}` : ''}`
   })
   const where = (st: Project['text'][number]['style']): string => {
     const rot = st.rotation ? ` rot ${Math.round(st.rotation)}` : ''

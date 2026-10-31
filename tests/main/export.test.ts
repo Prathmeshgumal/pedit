@@ -119,6 +119,34 @@ describe('runExport', () => {
     expect(regionMean(g2, 1920, 900, 610, 120, 20)).toBeLessThan(12)
   }, 120000)
 
+  it('filters and adjustments change the colour of the exported clip; vignette darkens the corners', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
+    const src = join(dir, 'orange.mp4')
+    execFileSync(ffmpegPath(), ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0xd07030:s=1920x1080:r=30:d=1', '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', src])
+    const p = emptyProject('look')
+    p.media = [await media(src, 'mo')]
+    p.video = [
+      { id: 'c1', mediaId: 'mo', startMs: 0, inMs: 0, outMs: 1000, volume: 1, look: { filter: { name: 'Black & white', strength: 1, adjust: { saturation: -100 } } } },
+      { id: 'c2', mediaId: 'mo', startMs: 1000, inMs: 0, outMs: 1000, volume: 1, look: { adjust: { vignette: 100 } } },
+      { id: 'c3', mediaId: 'mo', startMs: 2000, inMs: 0, outMs: 1000, volume: 1 }
+    ]
+    const out = join(dir, 'look.mp4')
+    await runExport(p, { aspect: '16:9', resolution: 1080, fps: 30, quality: 'high', outPath: out },
+      { renderTextPngs: async () => ({}), enc, onProgress: () => {}, signal: new AbortController().signal, tempDir: dir })
+    const rgbAt = (t: number, x: number, y: number): number[] => {
+      const rgb = execFileSync(ffmpegPath(), ['-v', 'error', '-ss', String(t), '-i', out, '-frames:v', '1', '-vf', 'scale=in_color_matrix=bt709:in_range=tv,format=rgb24', '-f', 'rawvideo', '-'], { maxBuffer: 64 << 20 })
+      const i = (y * 1920 + x) * 3
+      return [rgb[i], rgb[i + 1], rgb[i + 2]]
+    }
+    const bw = rgbAt(0.5, 960, 540)
+    expect(Math.max(...bw) - Math.min(...bw)).toBeLessThan(6) // grey
+    const plain = rgbAt(2.5, 960, 540)
+    expect(plain[0] - plain[2]).toBeGreaterThan(120) // still orange
+    const vigCentre = rgbAt(1.5, 960, 540), vigCorner = rgbAt(1.5, 4, 4)
+    expect(Math.abs(vigCentre[0] - plain[0])).toBeLessThan(8)
+    expect(vigCorner[0]).toBeLessThan(plain[0] * 0.2)
+  }, 120000)
+
   it('fast HDR export looks the same as tone-mapping at full size', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pedit-exp-'))
     const p = await reel(); p.video = [p.video[0]]; p.text = []; p.audio = []

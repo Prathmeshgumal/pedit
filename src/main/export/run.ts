@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, rename, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { buildLut, isNeutral, lookKey, parseCube, toCube, vignetteOf, type Cube } from '../../shared/look'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { timelineDurationMs, type ItemId, type Project, type TextItem } from '../../shared/model'
 import { runFfmpeg, type EncoderInfo } from '../media/ffmpeg'
-import { buildExportArgs, missingMedia, outputSize, type ExportOptions, type TextPng } from './graph'
+import { buildExportArgs, missingMedia, outputSize, type ClipLookFiles, type ExportOptions, type TextPng } from './graph'
 
 export type { ExportOptions } from './graph'
 
@@ -13,6 +14,35 @@ export interface ExportDeps {
   enc: EncoderInfo
   onProgress: (pct: number) => void
   signal: AbortSignal
+  /** Where to write the clips' LUT files (default: a new temp dir). */
+  tempDir?: string
+}
+
+/** Bake each clip's look into a .cube file (one per distinct look) for ffmpeg's lut3d. */
+export async function writeLookFiles(p: Project, dir: string): Promise<Record<ItemId, ClipLookFiles>> {
+  const out: Record<ItemId, ClipLookFiles> = {}
+  const byKey = new Map<string, string>()
+  const cubes: Record<string, Cube> = {}
+  for (const v of p.video) {
+    const vig = vignetteOf(v.look)
+    if (isNeutral(v.look) && !vig) continue
+    let cube: string | null = null
+    if (!isNeutral(v.look)) {
+      const key = lookKey(v.look)
+      cube = byKey.get(key) ?? null
+      if (!cube) {
+        const lut = v.look!.filter?.lut
+        if (lut && !cubes[lut]) {
+          try { cubes[lut] = parseCube(await readFile(lut, 'utf8')) } catch (e) { throw new Error(`The LUT file of filter "${v.look!.filter!.name}" can't be read (${(e as Error).message}).`) }
+        }
+        cube = join(dir, `look-${byKey.size}.cube`)
+        await writeFile(cube, toCube(buildLut(v.look!, cubes)))
+        byKey.set(key, cube)
+      }
+    }
+    out[v.id] = { cube, vignette: vig }
+  }
+  return out
 }
 
 export async function runExport(p: Project, o: ExportOptions, deps: ExportDeps): Promise<void> {
@@ -25,10 +55,11 @@ export async function runExport(p: Project, o: ExportOptions, deps: ExportDeps):
   const { width, height } = outputSize(o.aspect, o.resolution)
   const texts = p.text.filter((t) => t.startMs < total)
   const pngs = await deps.renderTextPngs(texts, width, height)
+  const looks = await writeLookFiles(p, deps.tempDir ?? await mkdtemp(join(tmpdir(), 'pedit-look-')))
   const part = `${o.outPath}.part`
   deps.onProgress(0)
   try {
-    const encode = (enc: EncoderInfo): Promise<void> => runFfmpeg(buildExportArgs(p, o, pngs, enc), {
+    const encode = (enc: EncoderInfo): Promise<void> => runFfmpeg(buildExportArgs(p, o, pngs, enc, looks), {
       signal: deps.signal,
       onProgress: (ms) => deps.onProgress(Math.min(99, Math.floor((ms / total) * 100)))
     })

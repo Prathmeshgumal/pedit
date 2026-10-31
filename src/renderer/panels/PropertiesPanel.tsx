@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { edit, fmtDur, useUi } from '../store'
 import { IDENTITY_TRANSFORM, TEXT_ANIMS, type TextAnim, type TextStyle } from '@shared/model'
 import { useLibrary } from '../library'
+import type { Adjust } from '@shared/look'
 import { promptDialog } from '../ContextMenu'
 import { CropDialog } from './CropDialog'
 import { mirrorSelected, rotateSelected } from '../timeline/actions'
@@ -20,6 +21,64 @@ function Volume({ id, volume }: { id: string; volume: number }) {
         onPointerUp={() => void edit({ type: 'setVolume', id, volume: v })} onKeyUp={() => void edit({ type: 'setVolume', id, volume: v })} />
       <span className="w-10 text-right">{Math.round(v * 100)}%</span>
     </Row>
+  )
+}
+
+/** A slider that shows its value while dragging and makes one edit when released. */
+function Slider({ label, testid, value, min, max, step = 1, fmt = String, onCommit }: { label: string; testid?: string; value: number; min: number; max: number; step?: number; fmt?: (v: number) => string; onCommit: (v: number) => void }) {
+  const [v, setV] = useState(value)
+  useEffect(() => setV(value), [value])
+  const commit = (): void => { if (v !== value) onCommit(v) }
+  return (
+    <Row label={label}>
+      <input data-testid={testid} type="range" min={min} max={max} step={step} value={v} className="flex-1"
+        onChange={(e) => setV(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onDoubleClick={() => onCommit(0)} />
+      <span className="w-10 text-right">{fmt(v)}</span>
+    </Row>
+  )
+}
+
+const ADJ_ROWS: Array<{ key: keyof Adjust; label: string; min: number }> = [
+  { key: 'exposure', label: 'Exposure', min: -100 }, { key: 'contrast', label: 'Contrast', min: -100 }, { key: 'highlights', label: 'Highlights', min: -100 },
+  { key: 'shadows', label: 'Shadows', min: -100 }, { key: 'saturation', label: 'Saturation', min: -100 }, { key: 'vibrance', label: 'Vibrance', min: -100 },
+  { key: 'temperature', label: 'Temp', min: -100 }, { key: 'tint', label: 'Tint', min: -100 }, { key: 'fade', label: 'Fade', min: 0 }, { key: 'vignette', label: 'Vignette', min: 0 }
+]
+
+function ColorProps({ id }: { id: string }) {
+  const lib = useLibrary()
+  const look = useUi((s) => s.project?.video.find((x) => x.id === id)?.look)
+  const f = look?.filter
+  return (
+    <>
+      <div className="mb-1 mt-3 text-[10px] uppercase tracking-wide text-neutral-500">Colour</div>
+      <Row label="Filter">
+        <select data-testid="prop-filter" className="min-w-0 flex-1 rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={f?.name ?? ''} onChange={(e) => {
+          const p = lib.filters.find((x) => x.name === e.target.value)
+          void edit({ type: 'setLook', ids: [id], filter: p ? { name: p.name, strength: f?.strength ?? 1, adjust: p.adjust, ...(p.lut ? { lut: p.lut } : {}) } : null })
+        }}>
+          <option value="">None</option>
+          {f && !lib.filters.some((x) => x.name === f.name) && <option value={f.name}>{f.name}</option>}
+          {lib.filters.map((p) => <option key={`${p.source}:${p.name}`} value={p.name}>{p.name}</option>)}
+        </select>
+      </Row>
+      {f && <Slider label="Strength" testid="prop-filter-strength" value={Math.round(f.strength * 100)} min={0} max={100} fmt={(v) => `${v}%`} onCommit={(v) => void edit({ type: 'setLook', ids: [id], filter: { ...f, strength: v / 100 } })} />}
+      {ADJ_ROWS.map((r) => (
+        <Slider key={r.key} label={r.label} testid={`adj-${r.key}`} value={look?.adjust?.[r.key] ?? 0} min={r.min} max={100}
+          onCommit={(v) => void edit({ type: 'setLook', ids: [id], adjust: { [r.key]: v } })} />
+      ))}
+      <div className="mb-2 flex gap-1">
+        {look?.adjust && <button className="btn" onClick={() => void edit({ type: 'setLook', ids: [id], adjust: null })}>Reset colour</button>}
+        <button data-testid="save-filter" className="btn" onClick={async () => {
+          const name = await promptDialog('Save this clip’s colour as a filter', '')
+          if (!name?.trim()) return
+          // approximately the clip's whole look as one set of adjustments: the filter's scaled by strength, plus the clip's own
+          const adjust: Adjust = {}
+          for (const [k, val] of Object.entries(f?.adjust ?? {}) as Array<[keyof Adjust, number]>) adjust[k] = k.endsWith('Hue') ? val : Math.round(val * f!.strength)
+          for (const [k, val] of Object.entries(look?.adjust ?? {}) as Array<[keyof Adjust, number]>) adjust[k] = k.endsWith('Hue') ? val : Math.max(-100, Math.min(100, (adjust[k] ?? 0) + val))
+          try { await window.pedit.saveFilter(name.trim(), '', adjust); useUi.getState().showToast(`Saved filter “${name.trim()}”`) } catch (e) { useUi.getState().showToast((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+        }}>Save as filter</button>
+      </div>
+    </>
   )
 }
 
@@ -135,6 +194,7 @@ export function PropertiesPanel() {
               {v.transform && <button className="btn" onClick={() => void edit({ type: 'setTransform', id: v.id, transform: IDENTITY_TRANSFORM })}>Reset</button>}
             </div>
           )}
+          {v && <ColorProps id={v.id} />}
           {crop && v && <CropDialog itemId={v.id} onClose={() => setCrop(false)} />}
         </>
       )}

@@ -5,6 +5,8 @@ import type { Command } from './commands'
 import type { SessionState } from './session'
 import type { FontInfo } from './fonts'
 import type { TextPreset } from './textPresets'
+import type { FilterPreset } from './filterPresets'
+import type { Adjust } from './look'
 
 export interface ChatEntry { at: string; role: 'user' | 'assistant' | 'step' | 'system'; text: string }
 export type ChatEvent =
@@ -51,6 +53,10 @@ export interface PeditApi {
   pickFontFile(): Promise<FontInfo | null>
   listTextStyles(): Promise<TextPreset[]>
   saveTextStyle(name: string, description: string, style: Partial<TextStyle>): Promise<TextPreset>
+  listFilters(): Promise<FilterPreset[]>
+  saveFilter(name: string, description: string, adjust: Adjust): Promise<FilterPreset>
+  /** Pick a .cube file and make a filter from it (named after the file). */
+  pickLut(): Promise<FilterPreset | null>
   /** Fonts, text styles or filters were added (by Claude or in another window). */
   onLibraryChanged(cb: () => void): () => void
   setSettings(patch: Partial<Settings>): Promise<Settings>
@@ -110,6 +116,9 @@ export const CH = {
   listTextStyles: 'lib:textStyles',
   saveTextStyle: 'lib:saveTextStyle',
   libraryChanged: 'lib:changed',
+  listFilters: 'lib:filters',
+  saveFilter: 'lib:saveFilter',
+  pickLut: 'lib:pickLut',
   setSettings: 'settings:set',
   menu: 'app:menu',
   pickImport: 'media:pick',

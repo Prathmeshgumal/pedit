@@ -6,7 +6,7 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 1. Playback stall fix — buffering instead of dropping frames  ✅
 2. Story file (story.md) Claude edits from  ✅
 3. Fonts library (bundled + Claude can add Google Fonts) and caption/text style presets, text animations  ✅
-4. Filters & adjustments (built-in looks + Claude can create new ones, LUT .cube support), per-clip strength  ⏳
+4. Filters & adjustments (built-in looks + Claude can create new ones, LUT .cube support), per-clip strength  ✅
 5. Transitions between clips (editor + Claude)  ⏳
 6. J-cut / L-cut (editor + Claude)  ⏳
 7. Handy cutting: blade tool (B) and a scissors button on the playhead  ⏳
@@ -28,3 +28,10 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - **Claude tools added:** `list_fonts`, `add_font`, `list_text_styles`, `save_text_style`, `add_captions` (many captions in one undo step, all-or-nothing), `restyle_text` (one look for all/some text). `add_text`/`update_text` take `preset`. Claude can't use a font that isn't installed: it's told to `add_font` it first.
 - **One undo for many edits:** a new internal "batch" edit groups several changes; used by `add_captions`/`restyle_text`.
 - Not done (kept for later): word-by-word karaoke highlight captions, typewriter animation.
+- **How filters work:** every colour change of a clip (its filter at its strength, then its own adjustments) is baked into one 3D colour table (a "LUT"). The preview uses it on the GPU, the export hands the same table to ffmpeg, so they match (tests check both). Vignette is separate and uses ffmpeg's exact formula in the preview too.
+- **15 built-in filters:** Warm, Cool, Vivid, Cinematic (teal/orange), Golden hour, Film, Vintage, Moody, Pastel, Bright & clean, Night city, Black & white, Noir, Sepia, Green & teal. Adjust sliders: exposure, contrast, highlights, shadows, saturation, vibrance, temperature, tint, fade, vignette (+ split toning for Claude). Double-click a slider to reset it.
+- **A clip keeps a copy of its filter's settings**, so a project still looks the same if the filter is later changed/deleted or opened on another computer (except a LUT file, which is referenced by path in `~/.config/pedit/luts`).
+- **Filters tab:** click a card → applies to the selected clip, or to every clip when none is selected (a toast says so). Thumbnails show the clip's own frame through each look. "Use this look on all clips", "Add a LUT file (.cube)…". Properties → Colour has the filter, its strength and the sliders; "Save as filter" saves the clip's look (filter strength folded in approximately; a LUT file is not carried over — cost: a saved look from a LUT-based filter loses the LUT part).
+- **Claude tools:** `list_filters`, `apply_filter` (strength 0–100, all clips by default, null removes), `adjust_color` (merge or `reset`), `create_filter`, `import_lut`. The timeline Claude reads now shows each clip's filter and adjustments.
+- **Export colour:** clips with a look are converted to RGB with BT.709 both ways (what browsers assume for HD video) for the LUT; clips without a look are untouched, so plain exports are exactly as before.
+- **Bug found by the test and fixed:** a look without a LUT file was ready instantly, which made the preview draw twice and keep the wrong (unfiltered) picture.

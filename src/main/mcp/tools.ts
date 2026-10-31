@@ -9,6 +9,8 @@ import { fmtTime } from '../../shared/time'
 import { TEXT_ANIMS, type TextStyle } from '../../shared/model'
 import type { FontInfo } from '../../shared/fonts'
 import type { TextPreset } from '../../shared/textPresets'
+import type { FilterPreset } from '../../shared/filterPresets'
+import type { Adjust } from '../../shared/look'
 
 /** Work the MCP tools hand back to the main process (it owns ffmpeg and the project folder). */
 export interface McpServices {
@@ -19,6 +21,7 @@ export interface McpServices {
   /** The project's story.md ('' if none). */
   getStory(): Promise<string>
   fonts?: { list(): Promise<FontInfo[]>; find(family: string): Promise<FontInfo | null>; addGoogle(family: string): Promise<FontInfo> }
+  filters?: { list(): Promise<FilterPreset[]>; find(name: string): Promise<FilterPreset | null>; save(name: string, description: string, adjust: Adjust): Promise<FilterPreset>; importCube(name: string, description: string, path: string, adjust?: Adjust): Promise<FilterPreset> }
   textStyles?: { list(): Promise<TextPreset[]>; find(name: string): Promise<TextPreset | null>; save(name: string, description: string, style: Partial<TextStyle>): Promise<TextPreset> }
 }
 
@@ -49,6 +52,23 @@ const style = z.object({
   animOut: anim.optional().describe('How it goes off'),
   animMs: z.number().int().min(50).max(3000).optional().describe('Animation length, default 400')
 }).optional()
+const adjustShape = z.object({
+  exposure: z.number().min(-100).max(100).optional(),
+  brightness: z.number().min(-100).max(100).optional(),
+  contrast: z.number().min(-100).max(100).optional(),
+  highlights: z.number().min(-100).max(100).optional().describe('- recovers bright skies'),
+  shadows: z.number().min(-100).max(100).optional().describe('+ opens up dark areas'),
+  saturation: z.number().min(-100).max(100).optional().describe('-100 = black & white'),
+  vibrance: z.number().min(-100).max(100).optional().describe('gentler saturation that spares skin tones'),
+  temperature: z.number().min(-100).max(100).optional().describe('+ warmer, - cooler'),
+  tint: z.number().min(-100).max(100).optional().describe('+ magenta, - green'),
+  fade: z.number().min(0).max(100).optional().describe('lifted, matte blacks'),
+  shadowHue: z.number().min(0).max(360).optional().describe('split toning: hue (degrees) pushed into shadows, e.g. 190 teal'),
+  shadowTone: z.number().min(0).max(100).optional(),
+  highlightHue: z.number().min(0).max(360).optional().describe('split toning: hue pushed into highlights, e.g. 35 orange'),
+  highlightTone: z.number().min(0).max(100).optional(),
+  vignette: z.number().min(0).max(100).optional().describe('darker edges')
+}).describe('Colour adjustments; 0 = unchanged')
 const preset = z.string().optional().describe('Name of a text style from list_text_styles; `style` fields override it')
 
 /** Register pedit's editor tools on an MCP server. Edit tools always write into Claude's draft. */
@@ -161,6 +181,37 @@ export function registerTools(server: McpServer, getSession: () => EditSession |
       const ids = (a.ids as string[] | undefined) ?? s.state().view.text.map((t) => t.id)
       return { type: 'batch', summary: `restyled ${ids.length} text items`, commands: ids.map((i) => ({ type: 'updateText' as const, id: i, style: st })) }
     })
+
+  const clipIds = (a: Record<string, unknown>, s: EditSession): string[] => (a.ids as string[] | undefined) ?? s.state().view.video.map((v) => v.id)
+  editAsync('apply_filter', 'Give video clips a filter (a named colour look from list_filters) at a strength 0-100 (default 100). `ids` default to every clip; filter null removes it. Keep one look across a sequence.',
+    { ids: z.array(z.string()).optional(), filter: z.string().nullable(), strength: z.number().min(0).max(100).optional() },
+    async (a, s) => {
+      if (a.filter === null) return { type: 'setLook', ids: clipIds(a, s), filter: null }
+      const f = services?.filters ? await services.filters.find(a.filter as string) : null
+      if (!f) throw new Error(`no filter "${String(a.filter)}": call list_filters, or create_filter to make one`)
+      return { type: 'setLook', ids: clipIds(a, s), filter: { name: f.name, strength: ((a.strength as number | undefined) ?? 100) / 100, adjust: f.adjust, ...(f.lut ? { lut: f.lut } : {}) } }
+    })
+  editAsync('adjust_color', "Fine-tune the colour of video clips (on top of their filter): exposure, contrast, white balance, saturation, highlights/shadows, split toning, vignette. Values merge into the clip's adjustments; `reset` clears them first. `ids` default to every clip.",
+    { ids: z.array(z.string()).optional(), adjust: adjustShape, reset: z.boolean().optional() },
+    async (a, s) => {
+      const ids = clipIds(a, s)
+      const set = { type: 'setLook' as const, ids, adjust: a.adjust as Adjust }
+      return a.reset ? { type: 'batch', summary: `reset and adjusted colour on ${ids.length} clips`, commands: [{ type: 'setLook', ids, adjust: null }, set] } : set
+    })
+  register('list_filters', { description: 'Filters (colour looks) you can apply: name, what it is for, its adjustments. Saved ones were made by you or the user; LUT ones use a .cube file.', inputSchema: {} }, async () => {
+    if (!services?.filters) return err('filters are not available here')
+    return ok((await services.filters.list()).map((f) => `${f.name}${f.source === 'user' ? ` [saved${f.lut ? ', LUT' : ''}]` : ''}: ${f.description} ${JSON.stringify(f.adjust)}`).join('\n'))
+  })
+  register('create_filter', { description: 'Make a new filter from colour adjustments and save it in the app library (for this and future projects; the user sees it in the Filters tab). Then apply it with apply_filter.',
+    inputSchema: { name: z.string().min(1).max(60), description: z.string().max(200).optional(), adjust: adjustShape } }, async (a) => {
+    if (!services?.filters) return err('filters are not available here')
+    try { const f = await services.filters.save(a.name as string, (a.description as string | undefined) ?? '', a.adjust as Adjust); return ok(`saved filter "${f.name}"`) } catch (e) { return err((e as Error).message) }
+  })
+  register('import_lut', { description: 'Make a filter from a 3D LUT file (.cube, e.g. one the user attached or downloaded); optional adjustments go on top. It is copied into the app library.',
+    inputSchema: { name: z.string().min(1).max(60), path: z.string().describe('Absolute path of the .cube file'), description: z.string().max(200).optional(), adjust: adjustShape.optional() } }, async (a) => {
+    if (!services?.filters) return err('filters are not available here')
+    try { const f = await services.filters.importCube(a.name as string, (a.description as string | undefined) ?? '', a.path as string, a.adjust as Adjust | undefined); return ok(`saved filter "${f.name}" from the LUT`) } catch (e) { return err((e as Error).message) }
+  })
 
   register('list_fonts', { description: 'Fonts you can use for text (family and kind). Any Google Font can be added with add_font.', inputSchema: {} }, async () => {
     if (!services?.fonts) return err('fonts are not available here')

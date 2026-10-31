@@ -3,8 +3,10 @@ import { runExport, exportTempDir } from './export/run'
 import { detectEncoders, ffmpegPath, fontsDir } from './media/ffmpeg'
 import { FontLibrary } from './library/fonts'
 import { TextStyleLibrary } from './library/textStyles'
+import { FilterLibrary } from './library/filters'
+import type { Adjust } from '../shared/look'
 import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { CH, type ChatTag, type MenuAction } from '../shared/ipc'
 import { Recents } from './recents'
@@ -47,12 +49,19 @@ const chat = new ChatController(editor, {
 let recents: Recents | null = null
 let fonts: FontLibrary | null = null
 let textStyles: TextStyleLibrary | null = null
+let filters: FilterLibrary | null = null
+const getFilters = (): FilterLibrary => (filters ??= new FilterLibrary(join(app.getPath('userData'), 'filters.json'), join(app.getPath('userData'), 'luts')))
 const getFonts = (): FontLibrary => (fonts ??= new FontLibrary(fontsDir(), join(app.getPath('userData'), 'fonts')))
 const getTextStyles = (): TextStyleLibrary => (textStyles ??= new TextStyleLibrary(join(app.getPath('userData'), 'text-styles.json')))
 /** Library calls that change it tell the renderer to reload. */
 const changed = async <T>(p: Promise<T>): Promise<T> => { const r = await p; send(CH.libraryChanged); return r }
 const libraryServices = () => ({
   fonts: { list: () => getFonts().list(), find: (f: string) => getFonts().find(f), addGoogle: (f: string) => changed(getFonts().addGoogle(f)) },
+  filters: {
+    list: () => getFilters().list(), find: (n: string) => getFilters().find(n),
+    save: (n: string, d: string, a: Adjust) => changed(getFilters().save(n, d, a)),
+    importCube: (n: string, d: string, p: string, a?: Adjust) => changed(getFilters().importCube(n, d, p, a))
+  },
   textStyles: { list: () => getTextStyles().list(), find: (n: string) => getTextStyles().find(n), save: (n: string, d: string, s: Partial<TextStyle>) => changed(getTextStyles().save(n, d, s)) }
 })
 const getRecents = (): Recents => (recents ??= new Recents(join(app.getPath('userData'), 'recent.json')))
@@ -134,6 +143,13 @@ function registerIpc(): void {
   ipcMain.handle(CH.pickFontFile, async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Add a font file', properties: ['openFile'], filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff2'] }] })
     return r.canceled || !r.filePaths[0] ? null : changed(getFonts().addFile(r.filePaths[0]))
+  })
+  ipcMain.handle(CH.listFilters, () => getFilters().list())
+  ipcMain.handle(CH.saveFilter, (_e, n: string, d: string, a: Adjust) => changed(getFilters().save(n, d, a)))
+  ipcMain.handle(CH.pickLut, async () => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Add a LUT (.cube) as a filter', properties: ['openFile'], filters: [{ name: '3D LUT', extensions: ['cube'] }] })
+    const f = r.filePaths[0]
+    return r.canceled || !f ? null : changed(getFilters().importCube(basename(f, extname(f)), 'from a LUT file', f))
   })
   ipcMain.handle(CH.listTextStyles, () => getTextStyles().list())
   ipcMain.handle(CH.saveTextStyle, (_e, n: string, d: string, s: Partial<TextStyle>) => changed(getTextStyles().save(n, d, s)))

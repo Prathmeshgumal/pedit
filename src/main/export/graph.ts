@@ -1,5 +1,6 @@
 import type { Aspect, ItemId, MediaItem, Project } from '../../shared/model'
 import { ffTextAnim } from '../../shared/textAnim'
+import { vignetteAngle } from '../../shared/look'
 import { IDENTITY_TRANSFORM, timelineDurationMs } from '../../shared/model'
 import { transformFilters } from '../../shared/transform'
 import { TONEMAP_VF } from '../media/color'
@@ -39,7 +40,21 @@ const AFMT = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo
 /** A rendered text image: the full-frame PNG, and the text block's centre (needed to scale it in place for 'pop'). */
 export type TextPng = string | { path: string; cx: number; cy: number }
 
-export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<ItemId, TextPng>, enc: EncoderInfo): string[] {
+/** A clip's look for export: baked LUT file (null = colours unchanged) and vignette strength 0..1. */
+export interface ClipLookFiles { cube: string | null; vignette: number }
+
+/** Colour look filters, in RGB with BT.709 both ways (as the preview decodes HD video). */
+export function lookFilters(l: ClipLookFiles | undefined): string[] {
+  if (!l || (!l.cube && !l.vignette)) return []
+  // inside '…' everything is literal except a quote, which closes, escapes and reopens
+  const esc = (s: string): string => s.replace(/\\/g, '/').replace(/'/g, "'\\''")
+  return ['scale=in_color_matrix=bt709:in_range=tv:out_range=pc', 'format=gbrp',
+    ...(l.cube ? [`lut3d=file='${esc(l.cube)}':interp=tetrahedral`] : []),
+    ...(l.vignette ? [`vignette=angle=${vignetteAngle(l.vignette).toFixed(4)}:dither=0`] : []),
+    'scale=out_color_matrix=bt709:out_range=tv']
+}
+
+export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<ItemId, TextPng>, enc: EncoderInfo, looks: Record<ItemId, ClipLookFiles> = {}): string[] {
   const { width: W, height: H } = outputSize(o.aspect, o.resolution)
   const fps = resolveFps(p, o)
   const total = timelineDurationMs(p)
@@ -54,7 +69,7 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
     if (m.kind === 'image') args.push('-loop', '1', '-framerate', String(fps), '-t', dur, '-i', m.path)
     else args.push('-ss', sec(v.inMs), '-t', dur, '-i', m.path)
     // drop frames and shrink first: tone-mapping 4K120 HDR at full size is the slow part
-    const vf = [`fps=${fps}`, ...transformFilters(v.transform ?? IDENTITY_TRANSFORM), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
+    const vf = [`fps=${fps}`, ...transformFilters(v.transform ?? IDENTITY_TRANSFORM), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), ...lookFilters(looks[v.id]), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
     fc.push(`[${n}:v]${vf.join(',')}[v${i}]`)
     if (m.hasAudio && m.kind === 'video') fc.push(`[${n}:a]${AFMT},atrim=duration=${dur},apad=whole_dur=${dur},asetpts=PTS-STARTPTS,volume=${v.volume}[a${i}]`)
     else fc.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${dur},${AFMT}[a${i}]`)

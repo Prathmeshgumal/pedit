@@ -284,3 +284,21 @@ describe('batch', () => {
     expect(r.project.text).toHaveLength(2)
   })
 })
+
+describe('looks (filters and adjustments)', () => {
+  it('sets a filter on clips, merges adjustments, keeps the look through a split, and clears it', () => {
+    const s = setup()
+    s.run({ type: 'addClip', mediaId: 'm_a' }); s.run({ type: 'addClip', mediaId: 'm_b' })
+    const bw = { name: 'Black & white', strength: 0.8, adjust: { saturation: -100 } }
+    s.run({ type: 'setLook', ids: ['c_000001', 'c_000002'], filter: bw })
+    expect(s.p.video.every((v) => v.look?.filter?.name === 'Black & white')).toBe(true)
+    s.run({ type: 'setLook', ids: ['c_000001'], adjust: { exposure: 20 } })
+    s.run({ type: 'setLook', ids: ['c_000001'], adjust: { contrast: 10 } })
+    expect(s.p.video[0].look).toEqual({ filter: bw, adjust: { exposure: 20, contrast: 10 } })
+    s.run({ type: 'splitItem', id: 'c_000001', atMs: 2000 })
+    expect(s.p.video[1].look).toEqual(s.p.video[0].look)
+    s.run({ type: 'setLook', ids: ['c_000002'], filter: null, adjust: null })
+    expect(s.p.video.find((v) => v.id === 'c_000002')!.look).toBeUndefined()
+    expect(s.err({ type: 'setLook', ids: ['t_nope'], adjust: { exposure: 1 } })).toBe('not_found')
+  })
+})
