@@ -63,3 +63,43 @@ test('mixed timeline with and without audio plays to the end in real time', asyn
   expect(await call(win, 'getTime')).toBe(13000)
   await app.close()
 })
+
+test('playback keeps going when the project changes twice in quick succession', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'RACE.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const ids = await mediaIds(win)
+  await pedit(win, 'edit', { type: 'addClip', mediaId: ids['h264_1080p30.mp4'] })
+  await expect(win.locator('[data-testid=preview-canvas]')).toHaveAttribute('data-loaded', 'true', { timeout: 10000 })
+  await call(win, 'play')
+  await win.waitForTimeout(300)
+  // e.g. two media-progress updates arriving while one seek is still decoding
+  await win.evaluate(async () => {
+    const st = await (window as unknown as { pedit: { getState(): Promise<{ view: unknown }> } }).pedit.getState()
+    const p = (window as unknown as { __peditPlayer: { setProject(v: unknown): Promise<void> } }).__peditPlayer
+    void p.setProject(st.view); void p.setProject(st.view); void p.setProject(st.view)
+  })
+  await win.waitForTimeout(500)
+  expect(await call(win, 'isPlayingNow')).toBe(true)
+  await app.close()
+})
+
+test('pausing while a seek is still loading keeps it paused', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'PZ.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const ids = await mediaIds(win)
+  await pedit(win, 'edit', { type: 'addClip', mediaId: ids['h264_1080p30.mp4'] })
+  await expect(win.locator('[data-testid=preview-canvas]')).toHaveAttribute('data-loaded', 'true', { timeout: 10000 })
+  await call(win, 'play')
+  await win.waitForTimeout(300)
+  await win.evaluate(() => {
+    const p = (window as unknown as { __peditPlayer: { seek(ms: number): Promise<void>; toggle(): void } }).__peditPlayer
+    void p.seek(2500); p.toggle()
+  })
+  await win.waitForTimeout(500)
+  expect(await call(win, 'isPlayingNow')).toBe(false)
+  await app.close()
+})

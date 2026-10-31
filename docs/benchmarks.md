@@ -71,3 +71,19 @@
 ## 2026-10-31T20:53:37.410Z timeline (10 × long_4k120.mov = 10 min)
 - playback across a cut: 57.2 fps, 97.4% presented, dropped 15
 - seek latency median 21.6 ms, max 28.6 ms
+
+## 2026-10-31T21:02:46.322Z single clip (bench/long_4k120.mov proxy)
+- playback: 58.6 fps presented, 99.8% presented, dropped 1
+- seek latency median 15.2 ms, max 26.7 ms
+
+## 2026-10-31T21:03:17.144Z timeline (10 × long_4k120.mov = 10 min)
+- playback across a cut: 58.4 fps, 99.5% presented, dropped 3
+- seek latency median 11.9 ms, max 26.0 ms
+
+## 2026-10-31T21:06:04.216Z single clip (bench/long_4k120.mov proxy)
+- playback: 58.7 fps presented, 100.0% presented, dropped 0
+- seek latency median 14.1 ms, max 35.8 ms
+
+## 2026-10-31T21:06:35.161Z timeline (10 × long_4k120.mov = 10 min)
+- playback across a cut: 58.5 fps, 99.7% presented, dropped 2
+- seek latency median 13.6 ms, max 30.7 ms

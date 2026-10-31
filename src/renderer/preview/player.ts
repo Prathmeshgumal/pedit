@@ -32,6 +32,8 @@ export class Player {
   private shown: VideoFrame | null = null
   private shownMs = -1
   private playing = false
+  /** Playback should resume once the seek in flight finishes (a newer seek inherits this). */
+  private resumeAfterSeek = false
   private raf = 0
   private listeners = new Set<(ms: number) => void>()
   private st = { presented: 0, dropped: 0, lastSeekMs: 0 }
@@ -78,7 +80,7 @@ export class Player {
 
   /** Preview the timeline; call on every project change. Keeps the playhead. */
   async setProject(p: Project): Promise<void> {
-    const wasPlaying = this.playing && this.mode === 'timeline'
+    const wasPlaying = (this.playing || this.resumeAfterSeek) && this.mode === 'timeline'
     this.mode = 'timeline'
     this.project = p
     const media = new Map(p.media.map((m) => [m.id, m]))
@@ -120,6 +122,7 @@ export class Player {
   }
 
   pause(): void {
+    this.resumeAfterSeek = false
     if (!this.playing) return
     this.playing = false
     cancelAnimationFrame(this.raf)
@@ -130,9 +133,10 @@ export class Player {
     this.emit()
   }
 
-  toggle(): void { if (this.playing) this.pause(); else this.play() }
+  toggle(): void { if (this.playing || this.resumeAfterSeek) this.pause(); else this.play() }
 
-  async seek(ms: number, resume = this.playing): Promise<void> {
+  async seek(ms: number, resume = this.playing || this.resumeAfterSeek): Promise<void> {
+    this.resumeAfterSeek = resume
     if (this.playing) { this.playing = false; cancelAnimationFrame(this.raf); this.audio.stop() }
     const g = ++this.gen
     this.flushQueue()
@@ -149,7 +153,10 @@ export class Player {
       this.show(r?.frame ?? null, this.t)
     }
     this.st.lastSeekMs = performance.now() - t0
-    if (resume) this.play()
+    // read the flag, not `resume`: a pause() during the seek cancels it
+    const go = this.resumeAfterSeek
+    this.resumeAfterSeek = false
+    if (go) this.play()
   }
 
   onTime(cb: (ms: number) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb) }
