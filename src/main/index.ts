@@ -4,7 +4,7 @@ import { detectEncoders, ffmpegPath } from './media/ffmpeg'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { CH, type MenuAction } from '../shared/ipc'
+import { CH, type ChatTag, type MenuAction } from '../shared/ipc'
 import { Recents } from './recents'
 import { SettingsStore } from './settings'
 import { buildMenu } from './menu'
@@ -132,7 +132,9 @@ function registerIpc(): void {
   ipcMain.handle(CH.redo, () => editor.session?.redo())
   ipcMain.handle(CH.acceptDraft, () => { if (!chat.running && editor.session?.state().draftActive) { editor.session.acceptDraft(); chat.noteDraftOutcome('accepted') } })
   ipcMain.handle(CH.rejectDraft, () => { if (!chat.running && editor.session?.state().draftActive) { editor.session.rejectDraft(); chat.noteDraftOutcome('rejected') } })
-  ipcMain.handle(CH.sendChat, (_e, text: string, tags: Array<{ name: string; mediaId: string }>) => chat.send(text, tags))
+  ipcMain.handle(CH.sendChat, (_e, text: string, tags: ChatTag[]) => chat.send(text, tags))
+  ipcMain.handle(CH.attachToChat, (_e, paths: string[]) => editor.attachFiles(paths))
+  ipcMain.handle(CH.attachPastedImage, (_e, png: Uint8Array) => editor.attachPastedImage(png))
   ipcMain.on(CH.stopChat, () => chat.stop())
   ipcMain.handle(CH.chatHistory, () => chat.history())
   ipcMain.handle(CH.claudeStatus, () => chat.status())

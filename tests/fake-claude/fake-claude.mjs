@@ -56,7 +56,13 @@ const tl = await call('get_timeline', {})
 const media = mediaLines(await call('list_media', {}))
 let rev = revOf(tl)
 
-if (mode === 'question') {
+if (mode === 'look') {
+  // look at the first attached file, then say how big the picture was
+  const id = /Attached: [^\n]*?\((m_[\w]+), /.exec(prompt)?.[1]
+  const r = id ? await client.callTool({ name: 'look_at_media', arguments: { mediaId: id } }) : null
+  const img = r?.content.find((c) => c.type === 'image')
+  out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: img ? `I saw ${Buffer.from(img.data, 'base64').length} bytes` : `no picture (${id ?? 'no attachment'})` }] }, session_id: sessionId })
+} else if (mode === 'question') {
   out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `You have ${media.length} clips.` }] }, session_id: sessionId })
 } else if (mode === 'demo') {
   // every day1 video clip in capture order, 3s each; title; music; vertical

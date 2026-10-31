@@ -18,6 +18,9 @@ export const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'] as 
 export const CLAUDE_EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export interface Settings { claudeModel: (typeof CLAUDE_MODELS)[number]; claudeEffort: (typeof CLAUDE_EFFORTS)[number] }
 
+/** A clip pointed at with @name, or a file attached to the message (`attached` = its kind). */
+export interface ChatTag { name: string; mediaId: MediaId; attached?: 'photo' | 'video' | 'audio' }
+
 export interface RecentProject { dir: string; name: string; openedAt: string; exists: boolean }
 /** Actions the app menu asks the window to do (dialogs that live in the renderer). */
 export type MenuAction = 'import' | 'export' | 'rename' | 'zoomIn' | 'zoomOut' | 'fullscreenPreview'
@@ -58,7 +61,9 @@ export interface PeditApi {
   onExportProgress(cb: (pct: number) => void): () => void
   pickExportPath(defaultName: string): Promise<string | null>
   revealFile(path: string): void
-  sendChat(text: string, tags: Array<{ name: string; mediaId: string }>): Promise<void>
+  sendChat(text: string, tags: ChatTag[]): Promise<void>
+  attachToChat(paths: string[]): Promise<ChatTag[]>
+  attachPastedImage(png: Uint8Array): Promise<ChatTag[]>
   stopChat(): void
   onChatEvent(cb: (e: ChatEvent) => void): () => void
   chatHistory(): Promise<ChatEntry[]>
@@ -99,6 +104,8 @@ export const CH = {
   textRender: 'text:render',
   diagnostics: 'app:diagnostics',
   sendChat: 'chat:send',
+  attachToChat: 'chat:attach',
+  attachPastedImage: 'chat:paste',
   stopChat: 'chat:stop',
   chatEvent: 'chat:event',
   chatHistory: 'chat:history',

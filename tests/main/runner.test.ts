@@ -104,5 +104,9 @@ describe('buildTurnPrompt', () => {
     expect(buildTurnPrompt('use it first', { lastDraft: 'rejected', userEdits: ['trimmed c_000002 (a.mp4) to 0:02.0 (was 0:05.0)'], tags: [{ name: 'shrine.mov', mediaId: 'm_000004' }] }))
       .toBe('[editor] Last draft: rejected. User edited the draft: trimmed c_000002 (a.mp4) to 0:02.0 (was 0:05.0). Referenced clips: @shrine.mov = m_000004\nuse it first')
   })
+  it('lists attached files with their media ids and kinds', () => {
+    expect(buildTurnPrompt('put this in', { lastDraft: null, userEdits: [], tags: [{ name: 'IMG_1.jpg', mediaId: 'm_000009', attached: 'photo' }, { name: 'shrine.mov', mediaId: 'm_000004' }] }))
+      .toBe('[editor] Referenced clips: @shrine.mov = m_000004. Attached: IMG_1.jpg (m_000009, photo)\nput this in')
+  })
 })
 void writeFileSync

@@ -81,3 +81,24 @@ test('stop keeps the partial draft; login problems show a hint', async () => {
   await expect(win.locator('[data-testid=chat-msg-system]').last()).toContainText('run claude once to log in', { timeout: 10000 })
   await app.close()
 })
+
+test('a photo attached to the chat joins the library once and Claude can look at it', async () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'AT.pedit')
+  const app = await open(dir, 'look')
+  const win = await app.firstWindow()
+  const photo = join(FIX, 'photos', 'landscape.jpg')
+  const attach = async (): Promise<void> => { await win.locator('[data-testid=chat-attach-input]').setInputFiles(photo) }
+  await attach()
+  await expect(win.locator('[data-testid=chat-chip]')).toContainText('landscape.jpg')
+  await expect(win.locator('[data-testid=media-tile]')).toHaveCount(1)
+  await attach()
+  await expect(win.locator('[data-testid=chat-chip]')).toHaveCount(1)
+  type S = { real: { media: Array<{ name: string; folder: string }> } }
+  expect((await pedit<S>(win, 'getState')).real.media.map((m) => [m.name, m.folder])).toEqual([['landscape.jpg', 'Chat']])
+  await waitReady(win, 1)
+  await say(win, 'what is in this photo?')
+  await expect(win.locator('[data-testid=chat-msg-assistant]')).toContainText(/saw \d+ bytes/, { timeout: 20000 })
+  const n = Number(/saw (\d+) bytes/.exec(await win.locator('[data-testid=chat-msg-assistant]').innerText())![1])
+  expect(n).toBeGreaterThan(1000)
+  await app.close()
+})

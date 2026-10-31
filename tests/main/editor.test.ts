@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, copyFileSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, copyFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Editor } from '../../src/main/editor'
@@ -90,6 +90,20 @@ describe('Editor tools for Claude', () => {
     expect(st.view.video).toHaveLength(3)
     expect(st.real.video).toHaveLength(1)
     expect(st.view.media.find((m) => m.id === st.view.video[1].mediaId)).toMatchObject({ kind: 'image', folder: 'Freeze frames' })
+    await ed.close()
+  }, 60000)
+
+  it('a pasted image is saved in the project and attached as a photo', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'pedit-ed-'))
+    const ed = new Editor(quiet)
+    await ed.newProject(join(base, 'P.pedit'), 'P')
+    const png = new Uint8Array(readFileSync(f('photos/square.png')))
+    const [a] = await ed.attachPastedImage(png)
+    const [b] = await ed.attachPastedImage(png)
+    expect(a.attached).toBe('photo')
+    const media = ed.state()!.real.media
+    expect(media.map((m) => [m.name, m.folder])).toEqual([['paste-1.png', 'Chat'], ['paste-2.png', 'Chat']])
+    expect(b.mediaId).toBe(media[1].id)
     await ed.close()
   }, 60000)
 })

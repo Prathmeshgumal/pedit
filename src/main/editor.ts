@@ -10,8 +10,8 @@ import { detectEncoders } from './media/ffmpeg'
 import { randomIds } from '../shared/ids'
 import { probe } from './media/probe'
 import { contactSheet, extractFrame } from './media/frames'
-import { mkdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 
 type Listener = { state(s: SessionState | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
 
@@ -109,6 +109,36 @@ export class Editor {
     this.pipeline!.enqueue(still)
     const cmd = { type: 'insertFreeze', id: itemId, atMs: Math.round(at), mediaId: still.id, durationMs } as const
     return (source === 'claude' ? session.applyToDraft(cmd, source) : session.apply(cmd, source)).summary
+  }
+
+  /** Files the user attached to a chat message: new ones join the library in folder "Chat"; all come back as chips. */
+  async attachFiles(paths: string[]): Promise<Array<{ name: string; mediaId: MediaId; attached: 'photo' | 'video' | 'audio' }>> {
+    const { session } = this.need()
+    const fresh = await importPaths(paths, session.state().real.media, randomIds)
+    if (fresh.length) {
+      for (const m of fresh) m.folder = 'Chat'
+      session.apply({ type: 'addMedia', items: fresh }, 'user')
+      for (const m of fresh) this.pipeline!.enqueue(m)
+    }
+    const media = session.state().real.media
+    const out: Array<{ name: string; mediaId: MediaId; attached: 'photo' | 'video' | 'audio' }> = []
+    for (const p of paths) {
+      const m = media.find((x) => resolve(x.path) === resolve(p))
+      if (m && !out.some((o) => o.mediaId === m.id)) out.push({ name: m.name, mediaId: m.id, attached: m.kind === 'image' ? 'photo' : m.kind })
+    }
+    return out
+  }
+
+  /** An image pasted into the chat: saved in the project's chat-files folder, then attached. */
+  async attachPastedImage(png: Uint8Array): Promise<Array<{ name: string; mediaId: MediaId; attached: 'photo' | 'video' | 'audio' }>> {
+    const { store } = this.need()
+    const dir = join(store.dir, 'chat-files')
+    await mkdir(dir, { recursive: true })
+    let n = 1
+    while (existsSync(join(dir, `paste-${n}.png`))) n++
+    const file = join(dir, `paste-${n}.png`)
+    await writeFile(file, png)
+    return this.attachFiles([file])
   }
 
   /** What Claude sees of a media file: a contact sheet of a video, or the photo itself (≤1568px, Claude's image limit). */

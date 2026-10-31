@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import type { ChatEntry, ClaudeStatus, Settings } from '@shared/ipc'
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import type { ChatEntry, ChatTag, ClaudeStatus, Settings } from '@shared/ipc'
 import { READ_TOOLS, CLAUDE_MODELS, CLAUDE_EFFORTS } from '@shared/ipc'
 import { errorText, stepText } from '@shared/chat'
 import { useUi } from '../store'
@@ -45,7 +45,8 @@ export function ChatPanel() {
   const running = useUi((s) => s.chatRunning)
   const setRunning = useUi((s) => s.setChatRunning)
   const [text, setText] = useState('')
-  const [tags, setTags] = useState<Array<{ name: string; mediaId: string }>>([])
+  const [tags, setTags] = useState<ChatTag[]>([])
+  const fileInput = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<ClaudeStatus | null>(null)
   const [dropOver, setDropOver] = useState(false)
   const list = useRef<HTMLDivElement>(null)
@@ -78,7 +79,8 @@ export function ChatPanel() {
   const send = async (): Promise<void> => {
     const t = text.trim()
     if (!t || running) return
-    const used = tags.filter((g) => t.includes(`@${g.name}`))
+    // attached files always go with the message; @-tags only if still mentioned
+    const used = tags.filter((g) => g.attached || t.includes(`@${g.name}`))
     setItems((x) => [...x, { kind: 'user', text: t }])
     setText(''); setTags([]); setRunning(true)
     try { await window.pedit.sendChat(t, used) } catch (err) {
@@ -91,8 +93,31 @@ export function ChatPanel() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
   }
 
+  const addAttached = (got: ChatTag[]): void => {
+    setTags((g) => [...g, ...got.filter((x) => !g.some((y) => y.mediaId === x.mediaId))])
+    input.current?.focus()
+  }
+  const attachPaths = async (paths: string[]): Promise<void> => {
+    if (!paths.length) return
+    try { addAttached(await window.pedit.attachToChat(paths)) } catch (err) { useUi.getState().showToast((err as Error).message) }
+  }
+  const attachFiles = (files: FileList | null): void => {
+    void attachPaths(Array.from(files ?? []).map((f) => window.pedit.pathForFile(f)).filter(Boolean))
+  }
+  const onPaste = (e: ClipboardEvent): void => {
+    const img = Array.from(e.clipboardData.items).find((i) => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile()
+    if (!img) return
+    e.preventDefault()
+    void img.arrayBuffer().then((b) => window.pedit.attachPastedImage(new Uint8Array(b))).then(addAttached, (err: Error) => useUi.getState().showToast(err.message))
+  }
+
   const onDrop = (e: DragEvent): void => {
     setDropOver(false)
+    if (!e.dataTransfer.types.includes('application/x-pedit-media') && e.dataTransfer.files.length) {
+      e.preventDefault()
+      attachFiles(e.dataTransfer.files)
+      return
+    }
     const id = e.dataTransfer.getData('application/x-pedit-media')
     const m = media.find((x) => x.id === id)
     if (!m) return
@@ -127,18 +152,22 @@ export function ChatPanel() {
         {tags.length > 0 && (
           <div className="mb-1 flex flex-wrap gap-1">
             {tags.map((g) => (
-              <span key={g.mediaId} className="rounded border border-violet-400 bg-violet-500/25 px-1 text-[10px]">@{g.name}
+              <span key={g.mediaId} data-testid="chat-chip" title={g.attached ? `Attached ${g.attached}` : 'Clip you pointed at'}
+                className="rounded border border-violet-400 bg-violet-500/25 px-1 text-[10px]">{g.attached ? `${g.attached === 'photo' ? '🖼' : g.attached === 'video' ? '🎬' : '♪'} ` : '@'}{g.name}
                 <button className="ml-1 text-neutral-400" onClick={() => setTags((x) => x.filter((y) => y.mediaId !== g.mediaId))}>×</button></span>
             ))}
           </div>
         )}
         <div className={`rounded-lg border bg-neutral-800 p-1.5 ${dropOver ? 'border-violet-300' : 'border-dashed border-violet-400/60'}`}
-          onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-pedit-media')) { e.preventDefault(); setDropOver(true) } }}
+          onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-pedit-media') || e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropOver(true) } }}
           onDragLeave={() => setDropOver(false)} onDrop={onDrop}>
-          <textarea ref={input} data-testid="chat-input" rows={3} disabled={running} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
-            placeholder={running ? 'Claude is working…' : 'Tell Claude what to do… (drop clips here)'}
+          <textarea ref={input} data-testid="chat-input" rows={3} disabled={running} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste}
+            placeholder={running ? 'Claude is working…' : 'Tell Claude what to do… (drop clips or files here, paste images)'}
             className="w-full resize-none bg-transparent text-xs text-neutral-100 outline-none placeholder:text-neutral-500 disabled:opacity-60" />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-1">
+            <input ref={fileInput} data-testid="chat-attach-input" type="file" multiple accept="video/*,audio/*,image/*" className="hidden"
+              onChange={(e) => { attachFiles(e.target.files); e.target.value = '' }} />
+            <button data-testid="chat-attach" className="btn mr-auto" title="Attach videos, audio or photos" disabled={running} onClick={() => fileInput.current?.click()}>📎</button>
             {running
               ? <button data-testid="chat-stop" className="btn" onClick={() => window.pedit.stopChat()}>■ Stop</button>
               : <button data-testid="chat-send" className="btn-primary" disabled={!text.trim()} onClick={() => void send()}>Send</button>}

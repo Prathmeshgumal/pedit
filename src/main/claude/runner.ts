@@ -7,7 +7,8 @@ export type { RunnerEvent } from './stream'
 export interface TurnContext {
   lastDraft: 'accepted' | 'rejected' | 'pending' | null
   userEdits: string[]
-  tags: Array<{ name: string; mediaId: string }>
+  /** @-referenced clips; `attached` marks files the user attached to this message (with their kind). */
+  tags: Array<{ name: string; mediaId: string; attached?: 'photo' | 'video' | 'audio' }>
 }
 
 /** The user's message, prefixed with one [editor] line of context Claude can't see otherwise. */
@@ -15,7 +16,9 @@ export function buildTurnPrompt(userText: string, ctx: TurnContext): string {
   const parts: string[] = []
   if (ctx.lastDraft) parts.push(`Last draft: ${ctx.lastDraft}`)
   if (ctx.userEdits.length) parts.push(`User edited the draft: ${ctx.userEdits.join('; ')}`)
-  if (ctx.tags.length) parts.push(`Referenced clips: ${ctx.tags.map((t) => `@${t.name} = ${t.mediaId}`).join(', ')}`)
+  const refs = ctx.tags.filter((t) => !t.attached), files = ctx.tags.filter((t) => t.attached)
+  if (refs.length) parts.push(`Referenced clips: ${refs.map((t) => `@${t.name} = ${t.mediaId}`).join(', ')}`)
+  if (files.length) parts.push(`Attached: ${files.map((t) => `${t.name} (${t.mediaId}, ${t.attached})`).join(', ')}`)
   return parts.length ? `[editor] ${parts.join('. ')}\n${userText}` : userText
 }
 
