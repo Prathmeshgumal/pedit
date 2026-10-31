@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { edit, fmtDur, useUi } from '../store'
-import type { TextStyle } from '@shared/model'
+import { IDENTITY_TRANSFORM, type TextStyle } from '@shared/model'
+import { CropDialog } from './CropDialog'
+import { mirrorSelected, rotateSelected } from '../timeline/actions'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="mb-2 flex items-center gap-2 text-[11px] text-neutral-400"><span className="w-16 shrink-0">{label}</span>{children}</label>
@@ -58,6 +60,7 @@ export function PropertiesPanel() {
   const t = project?.text.find((x) => x.id === id)
   const clip = v ?? a
   const media = clip ? project!.media.find((m) => m.id === clip.mediaId) : undefined
+  const [crop, setCrop] = useState(false)
   return (
     <div data-testid="properties" className="panel min-h-0 overflow-y-auto">
       <div className="panel-title">Properties</div>
@@ -69,6 +72,16 @@ export function PropertiesPanel() {
           <Row label="In"><span className="text-neutral-200">{fmtDur(clip.inMs)}</span></Row>
           <Row label="Out"><span className="text-neutral-200">{fmtDur(clip.outMs)}</span></Row>
           <Row label="Length"><span className="text-neutral-200">{fmtDur(clip.outMs - clip.inMs)}</span></Row>
+          {v && (
+            <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px] text-neutral-400">
+              <span className="w-16 shrink-0">Framing</span>
+              <button data-testid="prop-rotate" className="btn" title="Rotate 90°" onClick={rotateSelected}>⟳ {v.transform?.rotate ?? 0}°</button>
+              <button data-testid="prop-mirror" className={`btn ${v.transform?.flipH ? 'ring-1 ring-sky-400' : ''}`} title="Mirror" onClick={mirrorSelected}>⇋</button>
+              <button data-testid="prop-crop" className="btn" onClick={() => setCrop(true)}>Crop…</button>
+              {v.transform && <button className="btn" onClick={() => void edit({ type: 'setTransform', id: v.id, transform: IDENTITY_TRANSFORM })}>Reset</button>}
+            </div>
+          )}
+          {crop && v && <CropDialog itemId={v.id} onClose={() => setCrop(false)} />}
         </>
       )}
       {t && <TextProps id={t.id} />}

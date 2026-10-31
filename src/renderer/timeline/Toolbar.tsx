@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { memo, type ReactNode } from 'react'
 import { useUi } from '../store'
 import { canAct, deleteSelected, deleteSide, mirrorSelected, rotateSelected, splitAtPlayhead } from './actions'
 
@@ -17,15 +17,18 @@ function Tool({ id, title, disabled, onClick, children, on }: { id: string; titl
 }
 const Sep = () => <span className="mx-1 h-4 w-px bg-neutral-700" />
 
-/** CapCut-style row of tools above the timeline ruler. */
-export function Toolbar({ playhead, pxPerMs, setZoom, fit, onFreeze, onCrop }: {
-  playhead: number; pxPerMs: number; setZoom: (z: number) => void; fit: () => void; onFreeze?: () => void; onCrop?: () => void
+/**
+ * CapCut-style row of tools above the timeline ruler.
+ * Takes whether a playhead tool applies (not the playhead itself) so it does not re-render on every frame while playing.
+ */
+export const Toolbar = memo(function Toolbar({ canSplit, pxPerMs, setZoom, fit, onFreeze, onCrop }: {
+  canSplit: boolean; pxPerMs: number; setZoom: (z: number) => void; fit: () => void; onFreeze?: () => void; onCrop?: () => void
 }) {
   const session = useUi((s) => s.session)
   const sel = useUi((s) => s.selectedItemId)
   const snapping = useUi((s) => s.snapping)
   const p = session?.view ?? null
-  const can = canAct(p, sel, playhead)
+  const can = { ...canAct(p, sel, 0), split: canSplit }
   return (
     <div data-testid="timeline-toolbar" className="flex items-center gap-0.5 pb-1">
       <Tool id="undo" title="Undo (Ctrl+Z)" disabled={!session?.canUndo} onClick={() => void window.pedit.undo()}>↶</Tool>
@@ -51,4 +54,4 @@ export function Toolbar({ playhead, pxPerMs, setZoom, fit, onFreeze, onCrop }: {
       <Tool id="zoom-fit" title="Fit the whole timeline" onClick={fit}>Fit</Tool>
     </div>
   )
-}
+})

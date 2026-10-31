@@ -31,6 +31,8 @@ export interface PeditApi {
   saveProjectCopy(): Promise<string | null>
   removeMedia(id: MediaId, force?: boolean): Promise<{ ok: true } | { ok: false; inUse: number } | { ok: false; error: string }>
   removeUnusedMedia(): Promise<number>
+  freezeFrame(itemId: ItemId, atMs: number): Promise<void>
+  frameImage(mediaId: MediaId, sourceMs: number): Promise<string>
   onMenu(cb: (a: MenuAction) => void): () => void
   pickImport(kind?: 'files' | 'folder'): Promise<string[]>
   importPaths(paths: string[]): Promise<void>
@@ -71,6 +73,8 @@ export const CH = {
   saveProjectCopy: 'project:copy',
   removeMedia: 'media:remove',
   removeUnusedMedia: 'media:removeUnused',
+  freezeFrame: 'edit:freeze',
+  frameImage: 'media:frame',
   menu: 'app:menu',
   pickImport: 'media:pick',
   importPaths: 'media:import',

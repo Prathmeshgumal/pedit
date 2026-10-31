@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 
 export interface MenuItem { label: string; onClick: () => void; danger?: boolean; disabled?: boolean }
@@ -23,6 +23,29 @@ export function promptDialog(message: string, value = ''): Promise<string | null
   return new Promise((resolve) => useOverlay.setState({ prompt: { message, value, resolve } }))
 }
 
+/** Keeps the menu fully on screen, flipping it up/left when it would run off an edge. */
+function MenuBox({ x, y, items, close }: { x: number; y: number; items: MenuItem[]; close: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y, ready: false })
+  useLayoutEffect(() => {
+    const r = ref.current!.getBoundingClientRect()
+    const left = x + r.width > window.innerWidth - 4 ? Math.max(4, x - r.width) : x
+    const top = y + r.height > window.innerHeight - 4 ? Math.max(4, Math.min(y - r.height, window.innerHeight - 4 - r.height)) : y
+    setPos({ left, top, ready: true })
+  }, [x, y, items])
+  return (
+    <div ref={ref} data-testid="context-menu" className="absolute max-h-[calc(100vh-8px)] min-w-[170px] overflow-y-auto rounded-md border border-neutral-700 bg-neutral-800 py-1 text-xs shadow-xl"
+      style={{ left: pos.left, top: pos.top, visibility: pos.ready ? 'visible' : 'hidden' }}
+      onPointerDown={(e) => e.stopPropagation()}>
+      {items.map((it) => (
+        <button key={it.label} data-testid="menu-item" disabled={it.disabled}
+          className={`block w-full px-3 py-1.5 text-left hover:bg-neutral-700 disabled:opacity-40 ${it.danger ? 'text-red-300' : 'text-neutral-200'}`}
+          onClick={() => { close(); it.onClick() }}>{it.label}</button>
+      ))}
+    </div>
+  )
+}
+
 export function Overlays() {
   const { menu, confirm, prompt } = useOverlay()
   const close = (): void => useOverlay.setState({ menu: null })
@@ -38,15 +61,7 @@ export function Overlays() {
     <>
       {menu && (
         <div className="fixed inset-0 z-50" onPointerDown={close} onContextMenu={(e) => { e.preventDefault(); close() }}>
-          <div data-testid="context-menu" className="absolute min-w-[170px] rounded-md border border-neutral-700 bg-neutral-800 py-1 text-xs shadow-xl"
-            style={{ left: Math.min(menu.x, window.innerWidth - 190), top: Math.min(menu.y, window.innerHeight - menu.items.length * 26 - 12) }}
-            onPointerDown={(e) => e.stopPropagation()}>
-            {menu.items.map((it) => (
-              <button key={it.label} data-testid="menu-item" disabled={it.disabled}
-                className={`block w-full px-3 py-1.5 text-left hover:bg-neutral-700 disabled:opacity-40 ${it.danger ? 'text-red-300' : 'text-neutral-200'}`}
-                onClick={() => { close(); it.onClick() }}>{it.label}</button>
-            ))}
-          </div>
+          <MenuBox x={menu.x} y={menu.y} items={menu.items} close={close} />
         </div>
       )}
       {confirm && (

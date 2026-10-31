@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type WheelEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type WheelEvent } from 'react'
 import { useUi, edit } from '../store'
 import { getPlayer } from '../preview/instance'
 import { HEADER_W, RULER_H, contentHeight, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
 import { drawPlayhead, drawTimeline, type DrawState } from './draw'
 import { dragToCommand, snapCandidates, type Zone } from './interact'
 import { Toolbar, MIN_ZOOM, MAX_ZOOM } from './Toolbar'
-import { deleteSelected, deleteSide, splitAtPlayhead } from './actions'
+import { deleteSelected, deleteSide, splitAtPlayhead, selectedClip, canAct } from './actions'
+import { itemMenu, freezeAtPlayhead } from './clipMenu'
+import { openMenu } from '../ContextMenu'
+import { CropDialog } from '../panels/CropDialog'
 import { timelineDurationMs } from '@shared/model'
 
 type Drag =
@@ -30,6 +33,7 @@ export function TimelineCanvas() {
   const [cursor, setCursor] = useState('default')
   const [tick, setTick] = useState(0)
   const fitted = useRef(false)
+  const [cropFor, setCropFor] = useState<string | null>(null)
 
   const project = session?.view ?? null
   const rows = useMemo(() => (project ? trackRows(project) : []), [project])
@@ -144,6 +148,16 @@ export function TimelineCanvas() {
     drag.current = { kind: 'item', id: hit.id, track, zone: hit.zone, startX: x, dxMs: 0, moved: false }
   }
 
+  const onContextMenu = (e: MouseEvent): void => {
+    e.preventDefault()
+    if (!project) return
+    const { x, y } = local(e)
+    const hit = y >= RULER_H ? hitTest(layoutRef.current, rowsRef.current, x, y) : null
+    if (!hit) return
+    useUi.getState().selectItem(hit.id)
+    openMenu(e, itemMenu(project, hit.id, setCropFor))
+  }
+
   const onPointerMove = (e: PointerEvent): void => {
     if (!project) return
     const { x, y } = local(e)
@@ -178,14 +192,25 @@ export function TimelineCanvas() {
     if (cmd) void edit(cmd)
   }
 
+  const canSplit = canAct(project, selected, playhead).split
+  const onFreeze = useCallback(() => { const c = selectedClip(); if (c) void freezeAtPlayhead(c.id) }, [])
+  const onCrop = useCallback(() => { const c = selectedClip(); if (c) setCropFor(c.id) }, [])
+  const fit = useCallback(() => {
+    const p = useUi.getState().session?.view
+    const d = p ? timelineDurationMs(p) : 0
+    if (d) { setPxPerMs(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (width - HEADER_W - 40) / d))); setScrollMs(0) }
+  }, [width])
+
   /** Zoom keeping the playhead where it is on screen. */
-  const zoomAround = (z: number): void => {
-    const x = HEADER_W + (playhead - scrollMs) * pxPerMs
+  const playheadRef = useRef(0)
+  playheadRef.current = playhead
+  const zoomAround = useCallback((z: number): void => {
+    const x = HEADER_W + (playheadRef.current - scrollMs) * pxPerMs
     const anchor = x >= HEADER_W && x <= width ? x : HEADER_W
     const at = xToMs(anchor, pxPerMs, scrollMs)
     setPxPerMs(z)
     setScrollMs(Math.max(0, at - (anchor - HEADER_W) / z))
-  }
+  }, [pxPerMs, scrollMs, width])
 
   const onWheel = (e: WheelEvent): void => {
     if (e.ctrlKey || e.metaKey) {
@@ -271,16 +296,16 @@ export function TimelineCanvas() {
 
   return (
     <div data-testid="timeline" className="panel flex min-h-0 flex-col" style={{ gridColumn: '1 / 4' }}>
-      <Toolbar playhead={playhead} pxPerMs={pxPerMs} setZoom={zoomAround}
-        fit={() => { if (project) { const d = timelineDurationMs(project); if (d) { setPxPerMs(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (width - HEADER_W - 40) / d))); setScrollMs(0) } } }} />
+      <Toolbar canSplit={canSplit} pxPerMs={pxPerMs} setZoom={zoomAround} onFreeze={onFreeze} onCrop={onCrop} fit={fit} />
       <div ref={wrap} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <canvas ref={overlay} className="pointer-events-none absolute left-0 top-0" style={{ width, height: H }} />
         <canvas ref={canvas} data-testid="timeline-canvas" style={{ width, height: H, cursor, display: 'block' }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-          onWheel={onWheel} onDragOver={onDragOver} onDragLeave={() => setDropHint(null)} onDrop={onDrop} />
+          onContextMenu={onContextMenu} onWheel={onWheel} onDragOver={onDragOver} onDragLeave={() => setDropHint(null)} onDrop={onDrop} />
         {project && project.video.length === 0 && project.audio.length === 0 && project.text.length === 0 && (
           <div className="pointer-events-none -mt-24 text-center text-xs text-neutral-500">Drag clips here from the media panel</div>
         )}
+        {cropFor && <CropDialog itemId={cropFor} onClose={() => setCropFor(null)} />}
       </div>
     </div>
   )

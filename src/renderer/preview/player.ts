@@ -153,7 +153,7 @@ export class Player {
   }
 
   onTime(cb: (ms: number) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb) }
-  stats(): { presented: number; dropped: number; lastSeekMs: number } { return { ...this.st } }
+  stats(): { presented: number; dropped: number; lastSeekMs: number; audioScheduled: number } { return { ...this.st, audioScheduled: this.audio.scheduled } }
   debug(): Record<string, unknown> {
     return { ctx: this.audio.ctx.state, now: this.audio.nowMs(), q: this.queue.length, head: this.queue[0]?.ms, shownMs: this.shownMs, playing: this.playing, mode: this.mode }
   }

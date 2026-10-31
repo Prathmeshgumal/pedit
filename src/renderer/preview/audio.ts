@@ -5,6 +5,8 @@ export class AudioOut {
   private ctxStart = 0
   private mediaStartMs = 0
   running = false
+  /** How many sound pieces were scheduled (tests check playback has sound). */
+  scheduled = 0
 
   start(mediaMs: number): void {
     void this.ctx.resume()
@@ -47,6 +49,7 @@ export class AudioOut {
     node.start(Math.max(when, this.ctx.currentTime), (from - atMs) / 1000, (to - from) / 1000)
     node.onended = () => this.nodes.delete(node)
     this.nodes.add(node)
+    this.scheduled++
   }
 
   stop(): void {

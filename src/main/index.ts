@@ -108,6 +108,8 @@ function registerIpc(): void {
       return { ok: false, error: (e as Error).message }
     }
   })
+  ipcMain.handle(CH.freezeFrame, async (_e, id: string, atMs: number) => { await editor.freezeFrame(id, atMs) })
+  ipcMain.handle(CH.frameImage, (_e, id: string, ms: number) => editor.frameImage(id, ms))
   ipcMain.handle(CH.removeUnusedMedia, () => {
     const ids = editor.unusedMedia()
     for (const id of ids) editor.apply({ type: 'removeMedia', id }, 'user')

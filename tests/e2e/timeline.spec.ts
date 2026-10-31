@@ -191,3 +191,57 @@ test('with snapping off a text item can land one frame away from an edge', async
   expect(await text()).toBeLessThan(100)
   await app.close()
 })
+
+async function rightClickClip(win: Page, label: string): Promise<void> {
+  const v = (await items(win)).find((i) => i.track === 'video')!
+  await win.mouse.click(v.left + (v.right - v.left) * 0.8, v.cy, { button: 'right' })
+  await win.locator(`[data-testid=menu-item]:has-text("${label}")`).click()
+}
+
+test('right-click Extract audio puts the sound on its own row and it still plays', async () => {
+  const { app, win, clip } = await oneClip('XA')
+  await rightClickClip(win, 'Extract audio')
+  await expect.poll(async () => (await clip() as unknown as { volume: number }).volume).toBe(0)
+  const audioRows = async (): Promise<string[]> => (await items(win)).filter((i) => i.track === 'audio').map((i) => i.row)
+  await expect.poll(async () => (await audioRows()).length).toBe(1)
+  await win.evaluate(() => (window as unknown as { __peditPlayer: { seek(ms: number): Promise<void>; play(): void } }).__peditPlayer.seek(0))
+  await win.evaluate(() => (window as unknown as { __peditPlayer: { play(): void } }).__peditPlayer.play())
+  await expect.poll(() => win.evaluate(() => (window as unknown as { __peditPlayer: { stats(): { audioScheduled: number } } }).__peditPlayer.stats().audioScheduled)).toBeGreaterThan(0)
+  await app.close()
+})
+
+test('Freeze frame at 2s splits the clip around a 3s photo from the "Freeze frames" folder', async () => {
+  const { app, win } = await oneClip('FZ')
+  await win.evaluate(() => (window as unknown as { __peditPlayer: { seek(ms: number): Promise<void> } }).__peditPlayer.seek(2000))
+  await rightClickClip(win, 'Freeze frame')
+  type St = { view: { video: Array<{ mediaId: string; startMs: number; inMs: number; outMs: number }>; media: Array<{ id: string; kind: string; folder: string }> } }
+  await expect.poll(async () => (await pedit<St>(win, 'getState')).view.video.length).toBe(3)
+  const st = await pedit<St>(win, 'getState')
+  const mid = st.view.video[1]
+  const m = st.view.media.find((x) => x.id === mid.mediaId)!
+  expect([m.kind, m.folder, mid.startMs, mid.outMs - mid.inMs]).toEqual(['image', 'Freeze frames', 2000, 3000])
+  await app.close()
+})
+
+test('Crop dialog with the 1:1 preset crops a portrait phone clip to a square', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'CR.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day2', 'portrait_rot90.mp4')])
+  await waitReady(win, 1)
+  const st0 = await pedit<{ real: { media: Array<{ id: string }> } }>(win, 'getState')
+  await pedit(win, 'edit', { type: 'addClip', mediaId: st0.real.media[0].id })
+  await expect.poll(async () => (await items(win)).filter((i) => i.track === 'video').length).toBe(1)
+  await rightClickClip(win, 'Crop')
+  // click the preset straight away, before the frame has finished loading
+  await win.locator('[data-testid=crop-ratio]:has-text("1:1")').click()
+  await expect(win.locator('[data-testid=crop-dialog] img')).toBeVisible()
+  const nat = await win.locator('[data-testid=crop-dialog] img').evaluate((i: HTMLImageElement) => ({ w: i.naturalWidth, h: i.naturalHeight }))
+  expect(nat.h).toBeGreaterThan(nat.w)
+  await win.locator('[data-testid=crop-apply]').click()
+  type C = { transform?: { crop: { w: number; h: number } } }
+  const clip = async (): Promise<C> => (await pedit<{ view: { video: C[] } }>(win, 'getState')).view.video[0]
+  await expect.poll(async () => { const c = (await clip()).transform?.crop; return c ? c.w * c.h : 1 }).toBeLessThan(1)
+  const c = (await clip()).transform!.crop
+  expect(Math.abs(c.w * nat.w - c.h * nat.h)).toBeLessThan(4)
+  await app.close()
+})

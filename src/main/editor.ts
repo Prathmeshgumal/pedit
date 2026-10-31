@@ -9,6 +9,9 @@ import { MediaPipeline, importPaths } from './media/jobs'
 import { detectEncoders } from './media/ffmpeg'
 import { randomIds } from '../shared/ids'
 import { probe } from './media/probe'
+import { extractFrame } from './media/frames'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 
 type Listener = { state(s: SessionState | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
 
@@ -81,6 +84,39 @@ export class Editor {
     const st = this.need().session.state()
     const used = new Set([...st.real.video, ...st.real.audio, ...st.view.video, ...st.view.audio].map((i) => i.mediaId))
     return st.real.media.filter((m) => !used.has(m.id)).map((m) => m.id)
+  }
+
+  /** Freeze the frame of video clip `itemId` shown at timeline time `atMs`: a photo of it is imported and held for `durationMs`. */
+  async freezeFrame(itemId: string, atMs: number, durationMs = 3000, source: Source = 'user'): Promise<string> {
+    const { store, session } = this.need()
+    const view = session.state().view
+    const v = view.video.find((x) => x.id === itemId)
+    if (!v) throw new Error(`no video clip ${itemId}`)
+    const m = view.media.find((x) => x.id === v.mediaId)!
+    const at = Math.min(Math.max(atMs, v.startMs), v.startMs + v.outMs - v.inMs - 1)
+    const sourceMs = m.kind === 'image' ? 0 : v.inMs + (at - v.startMs)
+    const dir = join(store.dir, 'stills')
+    await mkdir(dir, { recursive: true })
+    const out = join(dir, `${m.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_')}_${Math.round(sourceMs)}ms_${Date.now().toString(36)}.jpg`)
+    await extractFrame(m, sourceMs, out)
+    const [still] = await importPaths([out], session.state().real.media, randomIds)
+    if (!still) throw new Error('could not read the frozen frame')
+    still.folder = 'Freeze frames'
+    session.apply({ type: 'addMedia', items: [still] }, source)
+    this.pipeline!.enqueue(still)
+    return session.apply({ type: 'insertFreeze', id: itemId, atMs: Math.round(at), mediaId: still.id, durationMs }, source).summary
+  }
+
+  /** A still of `mediaId` at `sourceMs` (cached), e.g. for the crop dialog. */
+  async frameImage(mediaId: MediaId, sourceMs: number, maxEdge = 1280): Promise<string> {
+    const { store, session } = this.need()
+    const m = session.state().view.media.find((x) => x.id === mediaId)
+    if (!m) throw new Error(`no media ${mediaId}`)
+    const dir = join(store.cacheDir, 'frames')
+    await mkdir(dir, { recursive: true })
+    const out = join(dir, `${m.id}_${Math.round(sourceMs)}_${maxEdge}.jpg`)
+    if (!existsSync(out)) await extractFrame(m, sourceMs, out, maxEdge)
+    return out
   }
 
   select(id: MediaId | null): void { if (id) this.pipeline?.prioritize([id]) }
