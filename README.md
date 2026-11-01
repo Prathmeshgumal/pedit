@@ -52,27 +52,7 @@ pedit is a CapCut-style editor for Linux, built from scratch. It has a media lib
 
 ## How it works
 
-```mermaid
-flowchart LR
-  subgraph Renderer["Renderer (React + Zustand)"]
-    UI[Panels & timeline canvas]
-    P[Preview player<br/>WebCodecs → WebGL2]
-  end
-  subgraph Main["Main process (Node)"]
-    S[EditSession<br/>real + draft, revisions, undo]
-    M[MCP server<br/>35 tools over HTTP]
-    F[FFmpeg jobs<br/>probe · proxy · thumbs · export]
-    R[Claude runner<br/>claude -p, stream-json]
-  end
-  C[(Claude Code)]
-  UI -- commands via IPC --> S
-  S -- state --> UI
-  R -- spawns --> C
-  C -- tool calls --> M
-  M -- commands as 'claude' --> S
-  S --> F
-  F -- proxies --> P
-```
+<img src="docs/images/architecture.svg" alt="Architecture: you edit through the renderer and Claude Code edits through pedit's MCP server; both send commands to one EditSession in the main process, which feeds FFmpeg jobs for proxies (to the WebGL2 preview) and export" width="100%">
 
 - **One command model.** Every edit, whether from a click, a shortcut or Claude, is a pure command in `src/shared/commands.ts`, applied by an `EditSession`. That one design gives you undo/redo, drafts, revision checks and Claude's edit summaries.
 - **The preview matches the export.** Tone mapping, filters, text layout and transitions are each written once and shared, or ported from FFmpeg and checked by tests.
