@@ -10,7 +10,7 @@ import { TimelineCanvas } from './timeline/TimelineCanvas'
 import { Toast } from './Toast'
 import { ExportDialog } from './panels/ExportDialog'
 import { Overlays } from './ContextMenu'
-import { renameProject } from './panels/TopBar'
+import { handleAppShortcut } from './appMenu'
 
 let connected = false
 
@@ -18,14 +18,19 @@ export function App() {
   useEffect(() => { if (!connected) { connected = true; connectStore() } }, [])
   const project = useUi((s) => s.project)
   const [exporting, setExporting] = useState(false)
-  useEffect(() => window.pedit.onMenu((a) => {
-    const p = useUi.getState().project
-    if (!p) return
-    if (a === 'export' && p.video.length) setExporting(true)
-    else if (a === 'rename') void renameProject(p.name)
-    else if (a === 'import') void window.pedit.pickImport('files').then((paths) => { if (paths.length) return window.pedit.importPaths(paths) })
-    else window.dispatchEvent(new CustomEvent('pedit-menu', { detail: a }))
-  }), [])
+  useEffect(() => {
+    const onMenu = (e: Event): void => {
+      const p = useUi.getState().project
+      if ((e as CustomEvent<string>).detail === 'export' && p?.video.length) setExporting(true)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      handleAppShortcut(e)
+    }
+    window.addEventListener('pedit-menu', onMenu)
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('pedit-menu', onMenu); window.removeEventListener('keydown', onKey) }
+  }, [])
   return (
     <div data-testid="app-root" className="h-full">
       {project ? (

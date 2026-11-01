@@ -1,25 +1,19 @@
 import { useEffect, useState } from 'react'
 import type { RecentProject } from '@shared/ipc'
-import { useUi } from './store'
+import { newProject, openProject } from './appMenu'
+import { AppMenuButton } from './panels/TopBar'
 import { openMenu } from './ContextMenu'
-
-const fail = (e: Error): void => useUi.getState().showToast(e.message)
 
 export function Welcome() {
   const [recent, setRecent] = useState<RecentProject[]>([])
   const load = (): void => void window.pedit.recentProjects().then(setRecent)
   useEffect(load, [])
-  const create = async (): Promise<void> => {
-    const dir = await window.pedit.pickProjectDir('new')
-    if (dir) await window.pedit.newProject(dir, dir.split(/[\\/]/).pop()!.replace(/\.pedit$/, '')).catch(fail)
-  }
-  const open = async (dir?: string | null): Promise<void> => {
-    dir ??= await window.pedit.pickProjectDir('open')
-    if (dir) await window.pedit.openProject(dir).catch(fail)
-  }
+  const create = newProject
+  const open = openProject
   const forget = async (dir: string): Promise<void> => { await window.pedit.forgetRecent(dir); load() }
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4">
+    <div className="relative flex h-full flex-col items-center justify-center gap-4">
+      <AppMenuButton className="absolute left-2 top-2" />
       <div className="text-2xl font-semibold">pedit</div>
       <div className="text-sm text-neutral-400">Edit videos by telling Claude what you want.</div>
       <div className="flex gap-2">

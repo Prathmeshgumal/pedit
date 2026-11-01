@@ -36,3 +36,9 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - **Export colour:** clips with a look are converted to RGB with BT.709 both ways (what browsers assume for HD video) for the LUT; clips without a look are untouched, so plain exports are exactly as before.
 - **Bug found by the test and fixed:** a look without a LUT file was ready instantly, which made the preview draw twice and keep the wrong (unfiltered) picture.
 - **Transitions (part 1):** a transition sits on the clip *after* a cut and makes the two clips overlap by its length (at most half of either clip), so the video gets shorter by that much, like CapCut. 18 types matching ffmpeg's `xfade` (cross dissolve, dip to black/white, soft wipes, wipes, slides, circle open/close, zoom in). Export uses `xfade` for transitions and `concat` for plain cuts; tested with real ffmpeg. Clip sound is now one piece per clip mixed together, crossfading under transitions; this also prepares J/L cuts (`audioCutMs`, logic + tests done). **Not yet:** the preview still shows transitions as a hard cut (the two-clip GPU blend is written but not wired in), and there's no editor picker or Claude tool for them yet.
+
+## Extra: no native menu bar ✅
+- `Menu.setApplicationMenu(null)`: the File/Edit/View/Window bar is gone on every screen.
+- Its items live in a ☰ button at the left of the top bar (and top-left of the start screen), with shortcuts shown next to each item.
+- Shortcuts moved to a renderer key handler (`src/renderer/appMenu.ts`): Ctrl+N/O/I/E/W/Q, F11, Ctrl+Shift+I. Window-only actions (quit, full screen, devtools) go to main over `app:window`.
+- Copy/paste in text boxes still works on Linux without menu roles (Chromium handles them).

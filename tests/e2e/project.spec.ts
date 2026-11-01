@@ -49,3 +49,29 @@ test('removing media used on the timeline asks first, removes its clips, and und
   await expect(win.locator('[data-testid=media-tile]')).toHaveCount(1)
   await app.close()
 })
+
+test('the window has no native menu bar; the in-app menu and its shortcuts work', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'Menu.pedit') })
+  const win = await app.firstWindow()
+  await expect(win.locator('[data-testid=project-name]')).toHaveText('Menu')
+  expect(await app.evaluate(({ Menu }) => Menu.getApplicationMenu())).toBeNull()
+
+  await win.locator('[data-testid=app-menu]').click()
+  const items = win.locator('[data-testid=menu-item]')
+  for (const l of ['New project', 'Open project', 'Import media', 'Export video', 'Close project', 'Undo', 'Quit']) await expect(items.filter({ hasText: l })).toHaveCount(1)
+  await expect(items.filter({ hasText: 'Export video' })).toBeDisabled() // nothing on the timeline yet
+  await win.keyboard.press('Escape')
+
+  // menu item: close the project, then the start screen also has the menu
+  await win.locator('[data-testid=app-menu]').click()
+  await items.filter({ hasText: 'Close project' }).click()
+  await expect(win.locator('[data-testid=recent-project]')).toHaveCount(1)
+  await expect(win.locator('[data-testid=app-menu]')).toBeVisible()
+  await win.locator('[data-testid=recent-project]').click()
+  await expect(win.locator('[data-testid=project-name]')).toHaveText('Menu')
+
+  // shortcut: Ctrl+W closes it too
+  await win.keyboard.press('Control+w')
+  await expect(win.locator('[data-testid=recent-project]')).toHaveCount(1)
+  await app.close()
+})

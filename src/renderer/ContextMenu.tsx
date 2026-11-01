@@ -1,7 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 
-export interface MenuItem { label: string; onClick: () => void; danger?: boolean; disabled?: boolean }
+export interface MenuItem {
+  label: string; onClick: () => void; danger?: boolean; disabled?: boolean
+  /** Shown dimmed on the right, e.g. "Ctrl+N". */
+  shortcut?: string
+  /** Tooltip, e.g. a project's folder. */
+  hint?: string
+  /** Draw a divider above this item. */
+  sep?: boolean
+}
 interface ConfirmReq { message: string; detail?: string; ok: string; resolve: (v: boolean) => void }
 interface PromptReq { message: string; value: string; resolve: (v: string | null) => void }
 
@@ -38,9 +46,15 @@ function MenuBox({ x, y, items, close }: { x: number; y: number; items: MenuItem
       style={{ left: pos.left, top: pos.top, visibility: pos.ready ? 'visible' : 'hidden' }}
       onPointerDown={(e) => e.stopPropagation()}>
       {items.map((it) => (
-        <button key={it.label} data-testid="menu-item" disabled={it.disabled}
-          className={`block w-full px-3 py-1.5 text-left hover:bg-neutral-700 disabled:opacity-40 ${it.danger ? 'text-red-300' : 'text-neutral-200'}`}
-          onClick={() => { close(); it.onClick() }}>{it.label}</button>
+        <div key={it.label}>
+          {it.sep && <div className="my-1 border-t border-neutral-700" />}
+          <button data-testid="menu-item" disabled={it.disabled} title={it.hint}
+            className={`flex w-full items-center gap-6 px-3 py-1.5 text-left hover:bg-neutral-700 disabled:opacity-40 ${it.danger ? 'text-red-300' : 'text-neutral-200'}`}
+            onClick={() => { close(); it.onClick() }}>
+            <span className="flex-1 truncate">{it.label}</span>
+            {it.shortcut && <span className="text-[10px] text-neutral-500">{it.shortcut}</span>}
+          </button>
+        </div>
       ))}
     </div>
   )

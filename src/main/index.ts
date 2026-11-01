@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { runExport, exportTempDir } from './export/run'
 import { detectEncoders, ffmpegPath, fontsDir } from './media/ffmpeg'
 import { FontLibrary } from './library/fonts'
@@ -8,10 +8,9 @@ import type { Adjust } from '../shared/look'
 import { rm } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { CH, type ChatTag, type MenuAction } from '../shared/ipc'
+import { CH, type ChatTag, type WindowAction } from '../shared/ipc'
 import { Recents } from './recents'
 import { SettingsStore } from './settings'
-import { buildMenu } from './menu'
 import { CommandError } from '../shared/commands'
 import { Editor } from './editor'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
@@ -71,7 +70,6 @@ async function rememberProject(): Promise<void> {
     writeFileSync(lastFile(), JSON.stringify({ dir: editor.store.dir }))
     await getRecents().add(editor.store.dir, editor.store.project.name)
   }
-  await refreshMenu()
 }
 
 async function switchProject(open: () => Promise<void>): Promise<void> {
@@ -83,7 +81,6 @@ async function closeProject(): Promise<void> {
   await editor.close()
   chat.resetProject()
   await rm(lastFile(), { force: true })
-  await refreshMenu()
 }
 
 async function pickProject(mode: 'new' | 'open'): Promise<string | null> {
@@ -104,25 +101,16 @@ async function saveCopy(): Promise<string | null> {
   return r.filePath
 }
 
-async function refreshMenu(): Promise<void> {
-  const sendMenu = (a: MenuAction): void => send(CH.menu, a)
-  buildMenu({
-    newProject: () => void pickProject('new').then((d) => { if (d) return switchProject(() => editor.openOrCreate(d)) }),
-    openProject: () => void pickProject('open').then((d) => { if (d) return switchProject(() => editor.openProject(d)) }),
-    openRecent: (d) => void switchProject(() => editor.openProject(d)).catch((e) => console.error(e)),
-    saveCopy: () => void saveCopy(),
-    closeProject: () => void closeProject(),
-    send: sendMenu,
-    undo: () => editor.session?.undo(),
-    redo: () => editor.session?.redo()
-  }, await getRecents().list(), !!editor.store)
-}
-
 function registerIpc(): void {
   ipcMain.handle(CH.newProject, (_e, dir: string, name: string) => switchProject(() => editor.newProject(dir, name)))
   ipcMain.handle(CH.openProject, (_e, dir: string) => switchProject(() => editor.openProject(dir)))
   ipcMain.handle(CH.recentProjects, () => getRecents().list())
-  ipcMain.handle(CH.forgetRecent, async (_e, dir: string) => { await getRecents().remove(dir); await refreshMenu() })
+  ipcMain.handle(CH.forgetRecent, (_e, dir: string) => getRecents().remove(dir))
+  ipcMain.on(CH.windowAction, (_e, a: WindowAction) => {
+    if (a === 'quit') app.quit()
+    else if (a === 'toggleFullscreen') win?.setFullScreen(!win.isFullScreen())
+    else if (a === 'devtools') win?.webContents.toggleDevTools()
+  })
   ipcMain.handle(CH.closeProject, () => closeProject())
   ipcMain.handle(CH.renameProject, async (_e, name: string) => { await editor.rename(name); await rememberProject() })
   ipcMain.handle(CH.saveProjectCopy, () => saveCopy())
@@ -262,7 +250,8 @@ app.whenReady().then(async () => {
     console.error('could not open project', e)
   }
   if (editor.store) await rememberProject()
-  await refreshMenu()
+  // no native File/Edit/View bar: the app has its own menu in the top bar
+  Menu.setApplicationMenu(null)
   await createWindow()
 })
 

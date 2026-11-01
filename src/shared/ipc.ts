@@ -26,8 +26,8 @@ export interface Settings { claudeModel: (typeof CLAUDE_MODELS)[number]; claudeE
 export interface ChatTag { name: string; mediaId: MediaId; attached?: 'photo' | 'video' | 'audio' | 'story' }
 
 export interface RecentProject { dir: string; name: string; openedAt: string; exists: boolean }
-/** Actions the app menu asks the window to do (dialogs that live in the renderer). */
-export type MenuAction = 'import' | 'export' | 'rename' | 'zoomIn' | 'zoomOut' | 'fullscreenPreview'
+/** Window-level things the in-app menu asks the main process to do. */
+export type WindowAction = 'quit' | 'toggleFullscreen' | 'devtools'
 
 export type ProgressStage = 'thumb' | 'filmstrip' | 'waveform' | 'proxy'
 
@@ -60,7 +60,7 @@ export interface PeditApi {
   /** Fonts, text styles or filters were added (by Claude or in another window). */
   onLibraryChanged(cb: () => void): () => void
   setSettings(patch: Partial<Settings>): Promise<Settings>
-  onMenu(cb: (a: MenuAction) => void): () => void
+  windowAction(a: WindowAction): void
   pickImport(kind?: 'files' | 'folder'): Promise<string[]>
   importPaths(paths: string[]): Promise<void>
   relinkMedia(id: MediaId): Promise<void>
@@ -120,7 +120,7 @@ export const CH = {
   saveFilter: 'lib:saveFilter',
   pickLut: 'lib:pickLut',
   setSettings: 'settings:set',
-  menu: 'app:menu',
+  windowAction: 'app:window',
   pickImport: 'media:pick',
   importPaths: 'media:import',
   relinkMedia: 'media:relink',
