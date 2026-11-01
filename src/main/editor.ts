@@ -10,8 +10,8 @@ import { detectEncoders } from './media/ffmpeg'
 import { randomIds } from '../shared/ids'
 import { probe } from './media/probe'
 import { contactSheet, extractFrame } from './media/frames'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { dirname, extname, join, resolve } from 'node:path'
 
 type Listener = { state(s: SessionState | null): void; progress(id: MediaId, stage: ProgressStage, pct: number): void }
 
@@ -122,9 +122,13 @@ export class Editor {
     await writeFile(join(store.dir, 'story.md'), text)
   }
 
-  /** Files the user attached to a chat message: new ones join the library in folder "Chat"; all come back as chips. */
+  /**
+   * Files the user attached to a chat message; all come back as chips.
+   * Media joins the library in folder "Chat", a text/markdown file becomes the story, and any other file
+   * (a LUT, subtitles, a PDF…) is copied into the project's chat-files folder so Claude can be told where it is.
+   */
   async attachFiles(paths: string[]): Promise<ChatTag[]> {
-    const { session } = this.need()
+    const { session, store } = this.need()
     // a text/markdown file becomes the project's story
     const stories = paths.filter((p) => /\.(md|markdown|txt)$/i.test(p))
     const storyChips: ChatTag[] = []
@@ -141,9 +145,27 @@ export class Editor {
     const out: ChatTag[] = [...storyChips]
     for (const p of paths) {
       const m = media.find((x) => resolve(x.path) === resolve(p))
-      if (m && !out.some((o) => o.mediaId === m.id)) out.push({ name: m.name, mediaId: m.id, attached: m.kind === 'image' ? 'photo' : m.kind })
+      if (m) { if (!out.some((o) => o.mediaId === m.id)) out.push({ name: m.name, mediaId: m.id, attached: m.kind === 'image' ? 'photo' : m.kind }); continue }
+      // not media (or media we can't read): keep a copy in the project, unless it's a folder
+      if (!(await stat(p)).isFile()) continue
+      const copy = await this.keepChatFile(store.dir, p)
+      if (!out.some((o) => o.path === copy)) out.push({ name: basename(p), mediaId: '', attached: 'file', path: copy })
     }
     return out
+  }
+
+  /** Copies a file into <project>/chat-files (a new name if one is taken by a different file) and returns the copy's path. */
+  private async keepChatFile(projectDir: string, src: string): Promise<string> {
+    const dir = join(projectDir, 'chat-files')
+    if (resolve(dirname(src)) === resolve(dir)) return resolve(src)
+    await mkdir(dir, { recursive: true })
+    const ext = extname(src), stem = basename(src, ext)
+    const data = await readFile(src)
+    for (let n = 1; ; n++) {
+      const dest = join(dir, n === 1 ? `${stem}${ext}` : `${stem}-${n}${ext}`)
+      if (!existsSync(dest)) { await writeFile(dest, data); return dest }
+      if ((await readFile(dest)).equals(data)) return dest // the same file attached again
+    }
   }
 
   /** An image pasted into the chat: saved in the project's chat-files folder, then attached. */

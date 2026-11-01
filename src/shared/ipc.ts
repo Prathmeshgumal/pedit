@@ -22,8 +22,11 @@ export const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'] as 
 export const CLAUDE_EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export interface Settings { claudeModel: (typeof CLAUDE_MODELS)[number]; claudeEffort: (typeof CLAUDE_EFFORTS)[number] }
 
-/** A clip pointed at with @name, or a file attached to the message (`attached` = its kind). */
-export interface ChatTag { name: string; mediaId: MediaId; attached?: 'photo' | 'video' | 'audio' | 'story' }
+/**
+ * A clip pointed at with @name, or a file attached to the message (`attached` = its kind).
+ * `file` is anything that isn't media or a story (a LUT, subtitles, a PDF…): it's saved in the project and `path` points at the copy.
+ */
+export interface ChatTag { name: string; mediaId: MediaId; attached?: 'photo' | 'video' | 'audio' | 'story' | 'file'; path?: string }
 
 export interface RecentProject { dir: string; name: string; openedAt: string; exists: boolean }
 /** Window-level things the in-app menu asks the main process to do. */
