@@ -57,6 +57,8 @@ export class Player {
   private playKey = ''
   /** Tests only: extra wait per decoded frame, to simulate a busy decoder. */
   decodeDelayMs = 0
+  /** Tests only: draw without text layers (to measure what the text adds). */
+  hideText = false
   /** Waiting for video frames: the clock is held still (at start, and whenever decoding falls behind). */
   private buffering = false
   private bufferSince = 0
@@ -278,7 +280,7 @@ export class Player {
       if (!v) return
       base = [v]
     }
-    const texts = this.mode === 'timeline' && this.project && this.textLayers ? this.project.text.filter((x) => this.t >= x.startMs && this.t < x.startMs + x.durationMs) : []
+    const texts = this.mode === 'timeline' && this.project && this.textLayers && !this.hideText ? this.project.text.filter((x) => this.t >= x.startMs && this.t < x.startMs + x.durationMs) : []
     this.comp.draw([...base, ...(texts.length ? this.textLayers!(texts, this.canvas.width, this.canvas.height, this.t) : [])], trans)
   }
 

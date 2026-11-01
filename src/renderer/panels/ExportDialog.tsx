@@ -1,3 +1,4 @@
+import { Select } from '../ui/Select'
 import { useEffect, useState } from 'react'
 import type { ExportOptions } from '@shared/ipc'
 import { useUi } from '../store'
@@ -26,7 +27,6 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     setPhase(r.ok ? { kind: 'done', path: outPath } : { kind: 'error', msg: r.error })
   }
 
-  const sel = 'rounded bg-neutral-800 px-1.5 py-1 text-neutral-100'
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60" onClick={() => phase.kind !== 'running' && onClose()}>
       <div data-testid="export-dialog" className="w-96 rounded-lg bg-neutral-900 p-4 text-xs text-neutral-300 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -35,21 +35,17 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           <>
             <div className="grid grid-cols-[90px_1fr] items-center gap-2">
               <span>Format</span>
-              <select className={sel} value={o.aspect} onChange={(e) => setO({ ...o, aspect: e.target.value as ExportOptions['aspect'] })}>
-                <option value="16:9">16:9 (YouTube)</option><option value="9:16">9:16 (Reels / Shorts)</option><option value="1:1">1:1 (Square)</option>
-              </select>
+              <Select testid="export-aspect" value={o.aspect} onChange={(v) => setO({ ...o, aspect: v })}
+                options={[{ value: '16:9', label: '16:9', hint: 'YouTube' }, { value: '9:16', label: '9:16', hint: 'Reels / Shorts' }, { value: '1:1', label: '1:1', hint: 'Square' }]} />
               <span>Resolution</span>
-              <select className={sel} value={o.resolution} onChange={(e) => setO({ ...o, resolution: Number(e.target.value) as 1080 | 2160 })}>
-                <option value={1080}>1080p</option><option value={2160}>4K</option>
-              </select>
+              <Select testid="export-resolution" value={String(o.resolution) as '1080' | '2160'} onChange={(v) => setO({ ...o, resolution: Number(v) as 1080 | 2160 })}
+                options={[{ value: '1080', label: '1080p' }, { value: '2160', label: '4K' }]} />
               <span>Frame rate</span>
-              <select className={sel} value={String(o.fps)} onChange={(e) => setO({ ...o, fps: e.target.value === 'source' ? 'source' : (Number(e.target.value) as 30 | 60) })}>
-                <option value="30">30 fps</option><option value="60">60 fps</option><option value="source">Match source (up to 120)</option>
-              </select>
+              <Select testid="export-fps" value={String(o.fps) as '30' | '60' | 'source'} onChange={(v) => setO({ ...o, fps: v === 'source' ? 'source' : (Number(v) as 30 | 60) })}
+                options={[{ value: '30', label: '30 fps' }, { value: '60', label: '60 fps' }, { value: 'source', label: 'Match source', hint: 'up to 120' }]} />
               <span>Quality</span>
-              <select className={sel} value={o.quality} onChange={(e) => setO({ ...o, quality: e.target.value as ExportOptions['quality'] })}>
-                <option value="standard">Standard</option><option value="high">High (bigger file)</option>
-              </select>
+              <Select testid="export-quality" value={o.quality} onChange={(v) => setO({ ...o, quality: v })}
+                options={[{ value: 'standard', label: 'Standard' }, { value: 'high', label: 'High', hint: 'bigger file' }]} />
               <span>Save to</span>
               <button className="btn truncate text-left" title={o.outPath} onClick={async () => { const p = await window.pedit.pickExportPath(`${project.name}.mp4`); if (p) setO({ ...o, outPath: p }) }}>
                 {o.outPath ? o.outPath.split(/[\\/]/).pop() : 'Choose…'}

@@ -8,6 +8,8 @@ import { audioCutAt } from '@shared/clipAudio'
 import { promptDialog } from '../ContextMenu'
 import { CropDialog } from './CropDialog'
 import { mirrorSelected, rotateSelected } from '../timeline/actions'
+import { Select } from '../ui/Select'
+import { Range } from '../ui/Range'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="mb-2 flex items-center gap-2 text-[11px] text-neutral-400"><span className="w-16 shrink-0">{label}</span>{children}</label>
@@ -18,7 +20,7 @@ function Volume({ id, volume }: { id: string; volume: number }) {
   useEffect(() => setV(volume), [volume])
   return (
     <Row label="Volume">
-      <input data-testid="prop-volume" type="range" min={0} max={200} value={Math.round(v * 100)} className="flex-1"
+      <Range data-testid="prop-volume" min={0} max={200} value={Math.round(v * 100)} className="flex-1"
         onChange={(e) => setV(Number(e.target.value) / 100)}
         onPointerUp={() => void edit({ type: 'setVolume', id, volume: v })} onKeyUp={() => void edit({ type: 'setVolume', id, volume: v })} />
       <span className="w-10 text-right">{Math.round(v * 100)}%</span>
@@ -34,7 +36,7 @@ function Slider({ label, testid, value, min, max, step = 1, fmt = String, onComm
   const commit = (e: { currentTarget: HTMLInputElement }): void => { const x = Number(e.currentTarget.value); if (x !== value) onCommit(x) }
   return (
     <Row label={label}>
-      <input data-testid={testid} type="range" min={min} max={max} step={step} value={v} className="flex-1"
+      <Range data-testid={testid} min={min} max={max} step={step} value={v} className="flex-1"
         onChange={(e) => setV(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onDoubleClick={() => onCommit(0)} />
       <span className="w-10 text-right">{fmt(v)}</span>
     </Row>
@@ -62,11 +64,9 @@ function CutProps({ id }: { id: string }) {
     <div className="mb-2 border-t border-neutral-800 pt-2">
       <div className="mb-1 text-[11px] font-medium text-neutral-300">Cut into this clip</div>
       <Row label="Transition">
-        <select data-testid="prop-transition" className="input flex-1" value={tr?.type ?? ''}
-          onChange={(e) => void edit({ type: 'setTransition', ids: [id], transition: e.target.value ? { type: e.target.value as TransitionType, durationMs: tr?.durationMs ?? DEFAULT_TRANSITION_MS } : null })}>
-          <option value="">None (cut)</option>
-          {TRANSITIONS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
+        <Select testid="prop-transition" size="sm" className="flex-1" value={(tr?.type ?? '') as TransitionType | ''}
+          onChange={(x) => void edit({ type: 'setTransition', ids: [id], transition: x ? { type: x, durationMs: tr?.durationMs ?? DEFAULT_TRANSITION_MS } : null })}
+          options={[{ value: '' as const, label: 'None (cut)' }, ...TRANSITIONS.map((t) => ({ value: t.id, label: t.label }))]} />
       </Row>
       {tr && <Slider label="Length" testid="prop-transition-ms" value={tr.durationMs} min={100} max={3000} step={100} fmt={(x) => `${(Math.min(x, transitionMs(p.video, i) || x) / 1000).toFixed(1)}s`}
         onCommit={(x) => void edit({ type: 'setTransition', ids: [id], transition: { type: tr.type, durationMs: x } })} />}
@@ -86,14 +86,12 @@ function ColorProps({ id }: { id: string }) {
     <>
       <div className="mb-1 mt-3 text-[10px] uppercase tracking-wide text-neutral-500">Colour</div>
       <Row label="Filter">
-        <select data-testid="prop-filter" className="min-w-0 flex-1 rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={f?.name ?? ''} onChange={(e) => {
-          const p = lib.filters.find((x) => x.name === e.target.value)
+        <Select testid="prop-filter" size="sm" className="flex-1" value={f?.name ?? ''} onChange={(name) => {
+          const p = lib.filters.find((x) => x.name === name)
           void edit({ type: 'setLook', ids: [id], filter: p ? { name: p.name, strength: f?.strength ?? 1, adjust: p.adjust, ...(p.lut ? { lut: p.lut } : {}) } : null })
-        }}>
-          <option value="">None</option>
-          {f && !lib.filters.some((x) => x.name === f.name) && <option value={f.name}>{f.name}</option>}
-          {lib.filters.map((p) => <option key={`${p.source}:${p.name}`} value={p.name}>{p.name}</option>)}
-        </select>
+        }} options={[{ value: '', label: 'None' },
+          ...(f && !lib.filters.some((x) => x.name === f.name) ? [{ value: f.name, label: f.name }] : []),
+          ...lib.filters.map((p) => ({ value: p.name, label: p.name, group: p.source === 'user' ? 'Saved' : 'Built in' }))]} />
       </Row>
       {f && <Slider label="Strength" testid="prop-filter-strength" value={Math.round(f.strength * 100)} min={0} max={100} fmt={(v) => `${v}%`} onCommit={(v) => void edit({ type: 'setLook', ids: [id], filter: { ...f, strength: v / 100 } })} />}
       {ADJ_ROWS.map((r) => (
@@ -129,24 +127,21 @@ function TextProps({ id }: { id: string }) {
   return (
     <>
       <Row label="Font">
-        <select data-testid="prop-font" className="min-w-0 flex-1 rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={t.style.font} onChange={(e) => style({ font: e.target.value })}>
-          {!lib.fonts.some((f) => f.family === t.style.font) && <option value={t.style.font}>{t.style.font}</option>}
-          {lib.fonts.map((f) => <option key={f.family} value={f.family}>{f.family}</option>)}
-        </select>
+        <Select testid="prop-font" size="sm" className="flex-1" value={t.style.font} onChange={(font) => style({ font })}
+          options={[...(lib.fonts.some((f) => f.family === t.style.font) ? [] : [{ value: t.style.font, label: t.style.font }]),
+            ...lib.fonts.map((f) => ({ value: f.family, label: f.family, hint: f.category, style: { fontFamily: `"${f.family}", Inter` } }))]} />
       </Row>
       <Row label="Text">
         <textarea data-testid="prop-text" className="min-h-12 flex-1 rounded bg-neutral-800 p-1 text-xs text-neutral-100" value={draft}
           onChange={(e) => setDraft(e.target.value)} onBlur={() => { if (draft.trim() && draft !== t.text) void edit({ type: 'updateText', id, text: draft }) }} />
       </Row>
-      <Row label="Size"><input type="range" min={2} max={20} step={0.5} value={t.style.sizePct} className="flex-1" onChange={(e) => style({ sizePct: Number(e.target.value) })} /><span className="w-10 text-right">{t.style.sizePct}%</span></Row>
+      <Row label="Size"><Range min={2} max={20} step={0.5} value={t.style.sizePct} className="flex-1" onChange={(e) => style({ sizePct: Number(e.target.value) })} /><span className="w-10 text-right">{t.style.sizePct}%</span></Row>
       <Row label="Color"><input type="color" value={t.style.color} onChange={(e) => style({ color: e.target.value })} /></Row>
       <Row label="Position">
-        <select className="rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={t.style.position} onChange={(e) => style({ position: e.target.value as TextStyle['position'] })}>
-          <option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option>
-          <option value="custom">Custom (drag in preview)</option>
-        </select>
+        <Select testid="prop-position" size="sm" className="flex-1" value={t.style.position} onChange={(position) => style({ position })}
+          options={[{ value: 'top', label: 'Top' }, { value: 'center', label: 'Center' }, { value: 'bottom', label: 'Bottom' }, { value: 'custom', label: 'Custom', hint: 'drag in preview' }]} />
       </Row>
-      <Row label="Rotation"><input type="range" min={-180} max={180} value={t.style.rotation ?? 0} className="flex-1" onChange={(e) => style({ rotation: Number(e.target.value) })} /><span className="w-10 text-right">{t.style.rotation ?? 0}°</span></Row>
+      <Row label="Rotation"><Range min={-180} max={180} value={t.style.rotation ?? 0} className="flex-1" onChange={(e) => style({ rotation: Number(e.target.value) })} /><span className="w-10 text-right">{t.style.rotation ?? 0}°</span></Row>
       <Row label="Bold"><input type="checkbox" checked={t.style.bold} onChange={(e) => style({ bold: e.target.checked })} /></Row>
       <Row label="Background">
         <input type="checkbox" checked={t.style.background !== null} onChange={(e) => style({ background: e.target.checked ? '#000000aa' : null })} />
@@ -156,36 +151,30 @@ function TextProps({ id }: { id: string }) {
         <input data-testid="prop-outline" type="checkbox" checked={outline !== null} onChange={(e) => style({ outline: e.target.checked ? { color: '#000000', width: 4 } : null })} />
         {outline && <>
           <input type="color" value={outline.color.slice(0, 7)} onChange={(e) => style({ outline: { ...outline, color: e.target.value } })} />
-          <input type="range" min={1} max={16} value={outline.width} className="flex-1" onChange={(e) => style({ outline: { ...outline, width: Number(e.target.value) } })} />
+          <Range min={1} max={16} value={outline.width} className="flex-1" onChange={(e) => style({ outline: { ...outline, width: Number(e.target.value) } })} />
         </>}
       </Row>
       <Row label="Shadow">
         <input data-testid="prop-shadow" type="checkbox" checked={!!t.style.shadow} onChange={(e) => style({ shadow: e.target.checked ? '#000000aa' : null })} />
         {t.style.shadow && <input type="color" value={t.style.shadow.slice(0, 7)} onChange={(e) => style({ shadow: e.target.value + 'cc' })} />}
       </Row>
-      <Row label="Spacing"><input data-testid="prop-spacing" type="range" min={-5} max={50} value={Math.round((t.style.letterSpacing ?? 0) * 100)} className="flex-1" onChange={(e) => style({ letterSpacing: Number(e.target.value) / 100 })} /><span className="w-10 text-right">{Math.round((t.style.letterSpacing ?? 0) * 100)}</span></Row>
+      <Row label="Spacing"><Range data-testid="prop-spacing" min={-5} max={50} value={Math.round((t.style.letterSpacing ?? 0) * 100)} className="flex-1" onChange={(e) => style({ letterSpacing: Number(e.target.value) / 100 })} /><span className="w-10 text-right">{Math.round((t.style.letterSpacing ?? 0) * 100)}</span></Row>
       <Row label="CAPS"><input data-testid="prop-caps" type="checkbox" checked={!!t.style.uppercase} onChange={(e) => style({ uppercase: e.target.checked })} /></Row>
       <Row label="Animate in">
-        <select data-testid="prop-anim-in" className="flex-1 rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={t.style.animIn ?? 'none'} onChange={(e) => style({ animIn: e.target.value as TextAnim })}>
-          {TEXT_ANIMS.map((a) => <option key={a} value={a}>{ANIM_LABEL[a]}</option>)}
-        </select>
+        <Select testid="prop-anim-in" size="sm" className="flex-1" value={(t.style.animIn ?? 'none') as TextAnim} onChange={(x) => style({ animIn: x })}
+          options={TEXT_ANIMS.map((x) => ({ value: x, label: ANIM_LABEL[x] }))} />
       </Row>
       <Row label="Animate out">
-        <select data-testid="prop-anim-out" className="flex-1 rounded bg-neutral-800 px-1 py-0.5 text-neutral-100" value={t.style.animOut ?? 'none'} onChange={(e) => style({ animOut: e.target.value as TextAnim })}>
-          {TEXT_ANIMS.map((a) => <option key={a} value={a}>{ANIM_LABEL[a]}</option>)}
-        </select>
+        <Select testid="prop-anim-out" size="sm" className="flex-1" value={(t.style.animOut ?? 'none') as TextAnim} onChange={(x) => style({ animOut: x })}
+          options={TEXT_ANIMS.map((x) => ({ value: x, label: ANIM_LABEL[x] }))} />
       </Row>
       {(t.style.animIn && t.style.animIn !== 'none' || t.style.animOut && t.style.animOut !== 'none') && (
-        <Row label="Anim length"><input type="range" min={100} max={2000} step={50} value={t.style.animMs ?? 400} className="flex-1" onChange={(e) => style({ animMs: Number(e.target.value) })} /><span className="w-10 text-right">{((t.style.animMs ?? 400) / 1000).toFixed(2)}s</span></Row>
+        <Row label="Anim length"><Range min={100} max={2000} step={50} value={t.style.animMs ?? 400} className="flex-1" onChange={(e) => style({ animMs: Number(e.target.value) })} /><span className="w-10 text-right">{((t.style.animMs ?? 400) / 1000).toFixed(2)}s</span></Row>
       )}
       <div className="mb-2 flex gap-1">
-        <select data-testid="prop-preset" className="min-w-0 flex-1 rounded bg-neutral-800 px-1 py-0.5 text-[11px] text-neutral-100" value="" onChange={(e) => {
-          const p = lib.textStyles.find((x) => x.name === e.target.value)
-          if (p) style(p.style)
-        }}>
-          <option value="">Apply a style…</option>
-          {lib.textStyles.map((p) => <option key={`${p.source}:${p.name}`} value={p.name}>{p.name}</option>)}
-        </select>
+        <Select testid="prop-preset" size="sm" className="flex-1" value="" onChange={(name) => { const p = lib.textStyles.find((x) => x.name === name); if (p) style(p.style) }}
+          renderValue={() => <span className="text-neutral-400">Apply a style…</span>}
+          options={lib.textStyles.map((p) => ({ value: p.name, label: p.name, group: p.source === 'user' ? 'Saved' : 'Built in' }))} />
         <button data-testid="prop-save-style" className="btn" onClick={async () => {
           const name = await promptDialog('Save this look as a text style', '')
           if (!name?.trim()) return

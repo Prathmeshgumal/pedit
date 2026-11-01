@@ -87,3 +87,7 @@
 ## 2026-10-31T21:06:35.161Z timeline (10 × long_4k120.mov = 10 min)
 - playback across a cut: 58.5 fps, 99.7% presented, dropped 2
 - seek latency median 13.6 ms, max 30.7 ms
+
+## 2026-11-01T07:10:34.294Z single clip (bench/long_4k120.mov proxy)
+- playback: 59.3 fps presented, 100.0% presented, dropped 0
+- seek latency median 8.9 ms, max 15.4 ms

@@ -22,7 +22,7 @@ test('demo: ask for a reel, accept the draft, export a vertical video with music
   await expect(win.locator('[data-testid=chat-msg-assistant]').last()).toContainText('vertical')
   // the draft is 9:16, but export uses the accepted timeline, so the dialog starts from its format
   await win.locator('[data-testid=export]').click()
-  await expect(win.locator('[data-testid=export-dialog] select').first()).toHaveValue('16:9')
+  await expect(win.locator('[data-testid=export-aspect]')).toHaveAttribute('data-value', '16:9')
   await win.locator('[data-testid=export-dialog]').evaluate((el) => (el.parentElement as HTMLElement).click())
   await win.locator('[data-testid=draft-accept]').click()
   const st = await pedit<{ real: { video: unknown[]; text: unknown[]; audio: unknown[]; settings: { aspect: string } } }>(win, 'getState')

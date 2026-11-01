@@ -35,3 +35,9 @@ export const centerLuma = (win: Page): Promise<number> =>
     for (let i = 0; i < d.length; i += 4) s += (d[i] + d[i + 1] + d[i + 2]) / 3
     return s / (d.length / 4)
   })
+
+/** Pick a value in one of the app's dropdowns (ui/Select). */
+export async function choose(win: Page, testid: string, value: string): Promise<void> {
+  await win.locator(`[data-testid=${testid}]`).click()
+  await win.locator(`[data-testid=${testid}-list] [data-testid=select-option][data-value="${value}"]`).click()
+}

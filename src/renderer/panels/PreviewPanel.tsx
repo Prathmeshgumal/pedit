@@ -3,6 +3,8 @@ import { useUi, edit } from '../store'
 import { fmtTimecode } from '@shared/time'
 import type { Aspect } from '@shared/model'
 import { Player } from '../preview/player'
+import { Select } from '../ui/Select'
+import { Range } from '../ui/Range'
 import { setPlayer } from '../preview/instance'
 import { textLayers } from '../text/layers'
 import { TextOverlay } from './TextOverlay'
@@ -121,7 +123,7 @@ export function PreviewPanel() {
         )}
       </div>
       {clipId && (
-        <input data-testid="clip-scrub" type="range" className="mt-1 w-full accent-sky-500" min={0} max={dur || 1} step={1} value={t} disabled={!loaded}
+        <Range data-testid="clip-scrub" className="mt-1 w-full" min={0} max={dur || 1} step={1} value={t} disabled={!loaded}
           onChange={(e) => void player.current?.seek(Number(e.target.value))} />
       )}
       <div data-testid="player-bar" className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-1.5 text-[11px] text-neutral-400">
@@ -136,10 +138,10 @@ export function PreviewPanel() {
         </button>
         <span className="flex items-center justify-end gap-2">
           {view && !clipId && (
-            <select data-testid="aspect" title="Video shape" className="rounded bg-neutral-800 px-1 py-0.5 text-neutral-200" value={view.settings.aspect}
-              onChange={(e) => void edit({ type: 'setFormat', aspect: e.target.value as Aspect })}>
-              <option value="16:9">16:9 YouTube</option><option value="9:16">9:16 Reels</option><option value="1:1">1:1 Square</option>
-            </select>
+            <Select testid="aspect" title="Video shape" size="sm" className="w-32" value={view.settings.aspect}
+              onChange={(a) => void edit({ type: 'setFormat', aspect: a })}
+              options={[{ value: '16:9' as Aspect, label: '16:9', hint: 'YouTube' }, { value: '9:16' as Aspect, label: '9:16', hint: 'Reels' }, { value: '1:1' as Aspect, label: '1:1', hint: 'Square' }]}
+              renderValue={(o) => `${o?.label} ${o?.hint}`} />
           )}
           <button data-testid="fullscreen" className="btn" title={full ? 'Exit full screen (Esc)' : 'Full screen'} onClick={toggleFull}>{full ? '⤡' : '⤢'}</button>
         </span>

@@ -4,6 +4,8 @@ import { READ_TOOLS, CLAUDE_MODELS, CLAUDE_EFFORTS } from '@shared/ipc'
 import { errorText, stepText } from '@shared/chat'
 import { useUi } from '../store'
 import { getPlayer } from '../preview/instance'
+import { Select } from '../ui/Select'
+import { Range } from '../ui/Range'
 
 type Item =
   | { kind: 'user'; text: string }
@@ -27,7 +29,7 @@ function DraftBar() {
   const fmt = session.view.settings.aspect !== session.real.settings.aspect
   const parts = [`${d.added.length} added`, `${d.removed.length} removed`, `${d.changed.length} changed`, ...(fmt ? [`format ${session.view.settings.aspect}`] : [])]
   return (
-    <div data-testid="draft-bar" className="mb-2 rounded-md border border-violet-500 bg-violet-950/50 p-2 text-[11px]">
+    <div data-testid="draft-bar" className="mb-2 rounded-xl border border-violet-500/60 bg-violet-950/40 px-2.5 py-2 text-[11px]">
       <div className="mb-1.5 text-violet-100">Draft: {parts.join(', ')}</div>
       <div className="flex gap-1.5">
         <button data-testid="draft-preview" className="btn" onClick={() => { useUi.getState().previewClip(null); const p = getPlayer(); void p?.seek(0).then(() => p.play()) }}>▶ Preview draft</button>
@@ -131,50 +133,73 @@ export function ChatPanel() {
     input.current?.focus()
   }
 
+  // consecutive tool steps show as one activity group under Claude's text
+  const blocks: Array<{ kind: 'steps'; steps: Array<Extract<Item, { kind: 'step' }>>; key: number } | { kind: 'item'; it: Item; key: number }> = []
+  items.forEach((it, i) => {
+    const last = blocks[blocks.length - 1]
+    if (it.kind === 'step') { if (last?.kind === 'steps') last.steps.push(it); else blocks.push({ kind: 'steps', steps: [it], key: i }) }
+    else blocks.push({ kind: 'item', it, key: i })
+  })
+
   return (
-    <div data-testid="chat" className="panel flex min-h-0 flex-col" style={{ gridRow: '2 / 4', gridColumn: '4' }}>
-      <div className="panel-title flex items-center">Claude<ClaudePicker /></div>
-      {status && !status.ok && (
-        <div data-testid="claude-banner" className="mb-2 rounded bg-amber-900/50 p-2 text-[11px] text-amber-100">Claude Code was not found. Install it, run `claude` once to log in, then restart pedit.</div>
-      )}
-      <div ref={list} className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 text-[12px] leading-snug">
-        {items.length === 0 && <div className="p-4 text-center text-xs text-neutral-500">Tell Claude what to make: "a 30s vertical reel of day 1, fast cuts, title Tokyo". Drag clips here to point at them.</div>}
-        {items.map((it, i) => {
-          if (it.kind === 'user') return <div key={i} data-testid="chat-msg-user" className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-indigo-800 px-2.5 py-1.5 text-white">{it.text}</div>
-          if (it.kind === 'assistant') return <div key={i} data-testid="chat-msg-assistant" className="max-w-[95%] whitespace-pre-wrap rounded-lg bg-neutral-800 px-2.5 py-1.5"><Rich text={it.text} /></div>
-          if (it.kind === 'system') return <div key={i} data-testid="chat-msg-system" className="rounded bg-amber-900/40 px-2.5 py-1.5 text-amber-100"><Rich text={it.text} /></div>
-          return (
-            <div key={i} data-testid="chat-step" className={`pl-2 text-[11px] ${it.running ? 'text-amber-300' : it.text.startsWith('✗') ? 'text-red-300' : it.dim ? 'text-neutral-500' : 'text-emerald-300'}`}>
-              {it.running ? `⟳ ${it.text}…` : it.text}
-            </div>
-          )
-        })}
-        {running && !items.some((x) => x.kind === 'step' && x.running) && <div className="pl-2 text-[11px] text-neutral-500">⟳ thinking…</div>}
+    <div data-testid="chat" className="panel flex min-h-0 flex-col !p-0" style={{ gridRow: '2 / 4', gridColumn: '4' }}>
+      <div className="flex items-center gap-2 px-3 pb-1 pt-2.5">
+        <span className="text-[13px] font-semibold text-neutral-100">Claude</span>
+        {running && <span className="chat-pulse" aria-label="working" />}
       </div>
-      <div className="pt-2">
-        <DraftBar />
-        {tags.length > 0 && (
-          <div className="mb-1 flex flex-wrap gap-1">
-            {tags.map((g) => (
-              <span key={`${g.mediaId}:${g.name}`} data-testid="chat-chip" title={g.attached ? `Attached ${g.attached}` : 'Clip you pointed at'}
-                className="rounded border border-violet-400 bg-violet-500/25 px-1 text-[10px]">{g.attached ? `${g.attached === 'photo' ? '🖼' : g.attached === 'video' ? '🎬' : g.attached === 'story' ? '📄' : '♪'} ` : '@'}{g.name}
-                <button className="ml-1 text-neutral-400" onClick={() => setTags((x) => x.filter((y) => y.mediaId !== g.mediaId))}>×</button></span>
-            ))}
+      {status && !status.ok && (
+        <div data-testid="claude-banner" className="mx-3 mb-2 rounded-md bg-amber-900/40 p-2 text-[11px] text-amber-100">Claude Code was not found. Install it, run `claude` once to log in, then restart pedit.</div>
+      )}
+      <div ref={list} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-2 text-[13px] leading-relaxed text-neutral-200">
+        {items.length === 0 && (
+          <div className="mt-6 space-y-2 text-[12px] text-neutral-500">
+            <div className="text-neutral-300">What should we make?</div>
+            <div>For example: a 30 second vertical reel of day 1, fast cuts, with the title “Tokyo”.</div>
+            <div>Drag clips here to point at them, or attach photos, music and a story file.</div>
           </div>
         )}
-        <div className={`rounded-lg border bg-neutral-800 p-1.5 ${dropOver ? 'border-violet-300' : 'border-dashed border-violet-400/60'}`}
+        {blocks.map((b) => {
+          if (b.kind === 'steps') return <Steps key={b.key} steps={b.steps} />
+          const it = b.it
+          if (it.kind === 'user') return <div key={b.key} data-testid="chat-msg-user" className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-[#2c2c33] px-3 py-2 text-neutral-100">{it.text}</div>
+          if (it.kind === 'assistant') return <div key={b.key} data-testid="chat-msg-assistant" className="whitespace-pre-wrap"><Rich text={it.text} /></div>
+          return <div key={b.key} data-testid="chat-msg-system" className="rounded-lg border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-[12px] text-amber-100"><Rich text={it.text} /></div>
+        })}
+        {running && !items.some((x) => x.kind === 'step' && x.running) && <div className="flex items-center gap-2 text-[12px] text-neutral-500"><span className="chat-spin" />Thinking</div>}
+      </div>
+      <div className="px-2.5 pb-2.5">
+        <DraftBar />
+        <div className={`rounded-2xl border bg-[#26262c] transition-colors focus-within:border-[#4a4a55] ${dropOver ? 'border-sky-400 bg-sky-950/30' : 'border-[#34343c]'}`}
           onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-pedit-media') || e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropOver(true) } }}
           onDragLeave={() => setDropOver(false)} onDrop={onDrop}>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 px-2.5 pt-2.5">
+              {tags.map((g) => (
+                <span key={`${g.mediaId}:${g.name}`} data-testid="chat-chip" title={g.attached ? `Attached ${g.attached}` : 'Clip you pointed at'}
+                  className="flex items-center gap-1 rounded-md bg-[#33333b] py-0.5 pl-1.5 pr-1 text-[11px] text-neutral-200">
+                  <span className="text-neutral-400">{g.attached ? (g.attached === 'photo' ? '🖼' : g.attached === 'video' ? '🎬' : g.attached === 'story' ? '📄' : '♪') : '@'}</span>
+                  <span className="max-w-[140px] truncate">{g.name}</span>
+                  <button className="rounded px-0.5 text-neutral-500 hover:text-neutral-200" aria-label={`Remove ${g.name}`} onClick={() => setTags((x) => x.filter((y) => y.mediaId !== g.mediaId))}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
           <textarea ref={input} data-testid="chat-input" rows={3} disabled={running} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste}
-            placeholder={running ? 'Claude is working…' : 'Tell Claude what to do… (drop clips or files here, paste images)'}
-            className="w-full resize-none bg-transparent text-xs text-neutral-100 outline-none placeholder:text-neutral-500 disabled:opacity-60" />
-          <div className="flex items-center justify-end gap-1">
+            placeholder={running ? 'Claude is working…' : 'Reply to Claude…'}
+            className="block w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-neutral-100 outline-none placeholder:text-neutral-500 disabled:opacity-60" />
+          <div className="flex items-center gap-1.5 px-2 pb-2">
             <input ref={fileInput} data-testid="chat-attach-input" type="file" multiple accept="video/*,audio/*,image/*,.md,.markdown,.txt" className="hidden"
               onChange={(e) => { attachFiles(e.target.files); e.target.value = '' }} />
-            <button data-testid="chat-attach" className="btn mr-auto" title="Attach videos, audio or photos" disabled={running} onClick={() => fileInput.current?.click()}>📎</button>
+            <button data-testid="chat-attach" className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-[#33333b] hover:text-neutral-100 disabled:opacity-40"
+              title="Attach videos, music, photos or a story file" aria-label="Attach files" disabled={running} onClick={() => fileInput.current?.click()}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
+            </button>
+            <ClaudePicker />
             {running
-              ? <button data-testid="chat-stop" className="btn" onClick={() => window.pedit.stopChat()}>■ Stop</button>
-              : <button data-testid="chat-send" className="btn-primary" disabled={!text.trim()} onClick={() => void send()}>Send</button>}
+              ? <button data-testid="chat-stop" title="Stop" aria-label="Stop" className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-200 text-neutral-900 hover:bg-white" onClick={() => window.pedit.stopChat()}>
+                  <svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg></button>
+              : <button data-testid="chat-send" title="Send (Enter)" aria-label="Send" className="flex h-7 w-7 items-center justify-center rounded-full bg-[#2f6db5] text-white hover:bg-[#3a7cc6] disabled:bg-[#33333b] disabled:text-neutral-500" disabled={!text.trim()} onClick={() => void send()}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /></svg></button>}
           </div>
         </div>
       </div>
@@ -182,26 +207,50 @@ export function ChatPanel() {
   )
 }
 
+/** A run of tool steps: a quiet list with a line down the left; long runs fold to the last few. */
+function Steps({ steps }: { steps: Array<Extract<Item, { kind: 'step' }>> }) {
+  const [open, setOpen] = useState(false)
+  const FOLD = 4
+  const hidden = !open && steps.length > FOLD ? steps.length - (FOLD - 1) : 0
+  const shown = hidden ? steps.slice(hidden) : steps
+  return (
+    <div className="border-l border-[#34343c] pl-2.5 text-[11.5px] leading-snug">
+      {hidden > 0 && <button className="mb-1 text-neutral-500 hover:text-neutral-300" onClick={() => setOpen(true)}>{hidden} earlier steps</button>}
+      {shown.map((it, i) => {
+        const failed = it.text.startsWith('✗')
+        return (
+          <div key={i} data-testid="chat-step" className={`flex items-start gap-1.5 py-0.5 ${it.running ? 'text-neutral-200' : failed ? 'text-red-300' : it.dim ? 'text-neutral-500' : 'text-neutral-400'}`}>
+            {it.running ? <span className="chat-spin mt-[3px]" /> : null}
+            <span className="min-w-0 break-words">{it.running ? `${it.text}…` : it.text}</span>
+          </div>
+        )
+      })}
+      {open && steps.length > FOLD && <button className="mt-1 text-neutral-500 hover:text-neutral-300" onClick={() => setOpen(false)}>Fold</button>}
+    </div>
+  )
+}
+
 const MODEL_LABEL: Record<Settings['claudeModel'], string> = { default: 'Default model', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' }
-const EFFORT_LABEL: Record<Settings['claudeEffort'], string> = { default: 'Default effort', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const EFFORT_LABEL: Record<Settings['claudeEffort'], string> = { default: 'Auto', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
 
 /** Which Claude model and how hard it thinks; saved right away, used from the next message. */
 function ClaudePicker() {
   const [s, setS] = useState<Settings | null>(null)
   useEffect(() => { void window.pedit.getSettings().then(setS) }, [])
-  if (!s) return null
+  if (!s) return <span className="flex-1" />
   const save = (patch: Partial<Settings>): void => { setS({ ...s, ...patch }); void window.pedit.setSettings(patch).then(setS) }
-  const cls = 'rounded bg-neutral-800 px-1 py-0.5 text-[10px] normal-case tracking-normal text-neutral-300 hover:bg-neutral-700'
+  const ei = CLAUDE_EFFORTS.indexOf(s.claudeEffort)
   return (
-    <span className="ml-auto flex gap-1">
-      <select data-testid="claude-model" title="Claude model (applies to your next message)" className={cls} value={s.claudeModel}
-        onChange={(e) => save({ claudeModel: e.target.value as Settings['claudeModel'] })}>
-        {CLAUDE_MODELS.map((m) => <option key={m} value={m}>{MODEL_LABEL[m]}</option>)}
-      </select>
-      <select data-testid="claude-effort" title="How hard Claude thinks (applies to your next message)" className={cls} value={s.claudeEffort}
-        onChange={(e) => save({ claudeEffort: e.target.value as Settings['claudeEffort'] })}>
-        {CLAUDE_EFFORTS.map((m) => <option key={m} value={m}>{EFFORT_LABEL[m]}</option>)}
-      </select>
+    <span className="ml-auto flex min-w-0 items-center gap-2">
+      <label className="flex items-center gap-1.5 text-[11px] text-neutral-400" title="How hard Claude thinks (from your next message). Auto lets Claude Code decide.">
+        <span data-testid="claude-effort-label" className="w-[52px] text-right">{EFFORT_LABEL[s.claudeEffort]}</span>
+        <Range data-testid="claude-effort" data-value={s.claudeEffort} aria-label="Effort" aria-valuetext={EFFORT_LABEL[s.claudeEffort]}
+          className="effort w-[64px]" min={0} max={CLAUDE_EFFORTS.length - 1} step={1} value={ei}
+          onChange={(e) => save({ claudeEffort: CLAUDE_EFFORTS[Number(e.target.value)] })} />
+      </label>
+      <Select testid="claude-model" size="sm" title="Claude model (from your next message)" className="max-w-[110px] !bg-transparent hover:!bg-[#33333b]"
+        value={s.claudeModel} onChange={(m) => save({ claudeModel: m })}
+        options={CLAUDE_MODELS.map((m) => ({ value: m, label: MODEL_LABEL[m] }))} />
     </span>
   )
 }

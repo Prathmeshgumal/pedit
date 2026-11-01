@@ -115,3 +115,20 @@ test('a .md file attached in chat becomes the story Claude reads, and shows in t
   await expect.poll(() => pedit<string>(win, 'getStory')).toBe('# New story\nonly sunsets')
   await app.close()
 })
+
+test('effort slider and model dropdown in the composer save the setting', async () => {
+  const app = await open(join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'EF.pedit'))
+  const win = await app.firstWindow()
+  const effort = win.locator('[data-testid=claude-effort]')
+  await expect(effort).toHaveAttribute('data-value', 'default')
+  await effort.focus()
+  await win.keyboard.press('ArrowRight'); await win.keyboard.press('ArrowRight')
+  await expect(effort).toHaveAttribute('data-value', 'medium')
+  await expect(win.locator('[data-testid=claude-effort-label]')).toHaveText('Medium')
+  await win.locator('[data-testid=claude-model]').click()
+  await win.keyboard.press('ArrowDown') // the list opens on the current choice; one down is Opus
+  await win.keyboard.press('Enter')
+  await expect(win.locator('[data-testid=claude-model]')).toHaveAttribute('data-value', 'opus')
+  expect(await pedit(win, 'getSettings')).toMatchObject({ claudeModel: 'opus', claudeEffort: 'medium' })
+  await app.close()
+})

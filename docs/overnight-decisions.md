@@ -10,7 +10,7 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 5. Transitions between clips (editor + Claude)  ✅
 6. J-cut / L-cut (editor + Claude)  ✅
 7. Handy cutting: blade tool (B) and a scissors button on the playhead  ✅
-8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ⏳
+8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ✅
 9. More Claude tools + guide on how to edit well (research)  ⏳
 10. Package (AppImage), full test run  ⏳
 
@@ -46,6 +46,11 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 
 - **Blade tool:** B (or the ✂ in the timeline toolbar) turns it on; a red dashed line shows where it will cut; click any clip, sound or text to cut it there. Cuts land on a frame and snap to the playhead when close. V or Escape goes back to select. Ctrl+B and S still split at the playhead as before.
 - **Scissors on the playhead:** a small ✂ circle sits on the playhead in the ruler whenever there is something under the playhead to cut; click it to split there. Clicking anywhere else on the ruler still scrubs.
+
+- **Chat looks like the Claude desktop app:** your messages in soft grey bubbles on the right, Claude's replies as plain text, tool steps as a quiet list with a line down the left (long runs fold to the last 3, "N earlier steps" opens them), and one rounded box at the bottom holding attach (+), effort, model and a round send/stop button. I kept the editor's blue instead of Claude's orange so the app doesn't look like a copy of Anthropic's.
+- **Effort is a 6-step slider** (Auto, Low, Medium, High, Extra high, Max) with the level's name next to it; **model** is a small dropdown beside it. Both still save straight away and apply from your next message.
+- **All dropdowns are the app's own** (`src/renderer/ui/Select.tsx`): native ones can't be styled on Linux and looked like 2005. Keyboard works (arrows, Enter, Escape, type a letter). The font list shows each font in its own face; filters and text styles are grouped "Built in" / "Saved".
+- **Sliders are restyled** (thin track, round thumb). Two-sided ones (contrast, temperature, J/L…) fill from the middle, so you can see how far from neutral a value is.
 
 ## Extra: no native menu bar ✅
 - `Menu.setApplicationMenu(null)`: the File/Edit/View/Window bar is gone on every screen.

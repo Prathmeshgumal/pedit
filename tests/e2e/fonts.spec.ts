@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { launch } from './helpers'
-import { call, pedit, waitReady, mediaIds } from './util'
+import { call, pedit, waitReady, mediaIds, choose } from './util'
 
 const FIX = resolve('tests/fixtures/media')
 type Box = { x0: number; y0: number; x1: number; y1: number }
@@ -17,14 +17,13 @@ const bbox = (win: Page, style: Record<string, unknown>): Promise<Box> =>
 
 /** Pixels the text layers add to the preview: drawn with and without them, counting the ones that change a lot. */
 const textPixels = (win: Page): Promise<number> => win.evaluate(() => {
-  type P = { comp: { draw(l: unknown[]): void }; layers(f: unknown): Array<{ fit: string }>; shown: unknown }
+  type P = { draw(): void; hideText: boolean }
   const p = (window as unknown as { __peditPlayer: P }).__peditPlayer
   const c = document.querySelector('[data-testid=preview-canvas]') as HTMLCanvasElement
   const grab = (): Uint8ClampedArray => { const o = new OffscreenCanvas(c.width, c.height); const x = o.getContext('2d')!; x.drawImage(c, 0, 0); return x.getImageData(0, 0, c.width, c.height).data }
-  const all = p.layers(p.shown)
-  p.comp.draw(all); const a = grab()
-  p.comp.draw(all.filter((l) => l.fit !== 'full')); const b = grab()
-  p.comp.draw(all)
+  p.draw(); const a = grab()
+  p.hideText = true; p.draw(); const b = grab()
+  p.hideText = false; p.draw()
   let n = 0
   for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 200) n++
   return n
@@ -72,9 +71,9 @@ test('a text style card adds styled text; properties change font and animation; 
   await expect.poll(async () => ((await pedit<{ view: { text: Array<{ style: { font: string } }> } }>(win, 'getState')).view.text[0]?.style.font)).toBe('Bebas Neue')
   const st = await pedit<{ view: { text: Array<{ id: string }> } }>(win, 'getState')
   await call(win, 'seek', 0)
-  await expect(win.locator('[data-testid=prop-font]')).toHaveValue('Bebas Neue')
-  await win.locator('[data-testid=prop-font]').selectOption('Lobster')
-  await win.locator('[data-testid=prop-anim-in]').selectOption('pop')
+  await expect(win.locator('[data-testid=prop-font]')).toHaveAttribute('data-value', 'Bebas Neue')
+  await choose(win, 'prop-font', 'Lobster')
+  await choose(win, 'prop-anim-in', 'pop')
   await expect.poll(async () => ((await pedit<{ view: { text: Array<{ style: Record<string, unknown> }> } }>(win, 'getState')).view.text[0].style)).toMatchObject({ font: 'Lobster', animIn: 'pop' })
 
   // the preview: a text with a 1s pop-in is faint and small early on, full later

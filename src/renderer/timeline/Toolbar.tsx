@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from 'react'
 import { useUi } from '../store'
+import { Range } from '../ui/Range'
 import { canAct, deleteSelected, deleteSide, mirrorSelected, rotateSelected, splitAtPlayhead } from './actions'
 
 export const MIN_ZOOM = 0.001 // px per ms (1px = 1s)
@@ -54,7 +55,7 @@ export const Toolbar = memo(function Toolbar({ canSplit, pxPerMs, setZoom, fit, 
       <Tool id="tool-snap" title="Snapping (N)" on={snapping} onClick={() => useUi.getState().setSnapping(!snapping)}>🧲</Tool>
       <Sep />
       <Tool id="zoom-out" title="Zoom out (Ctrl+-)" onClick={() => setZoom(Math.max(MIN_ZOOM, pxPerMs / 1.5))}>－</Tool>
-      <input data-testid="zoom" type="range" min={0} max={100} value={toSlider(pxPerMs)} className="w-24 accent-sky-500"
+      <Range data-testid="zoom" min={0} max={100} value={toSlider(pxPerMs)} className="w-24"
         onChange={(e) => setZoom(fromSlider(Number(e.target.value)))} />
       <Tool id="zoom-in" title="Zoom in (Ctrl+=)" onClick={() => setZoom(Math.min(MAX_ZOOM, pxPerMs * 1.5))}>＋</Tool>
       <Tool id="zoom-fit" title="Fit the whole timeline" onClick={fit}>Fit</Tool>

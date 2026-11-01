@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { launch } from './helpers'
-import { call, pedit, waitReady, mediaIds } from './util'
+import { call, pedit, waitReady, mediaIds, choose } from './util'
 
 const FIX = resolve('tests/fixtures/media')
 const FFMPEG = resolve('resources/ffmpeg/linux-x64/ffmpeg')
@@ -89,8 +89,8 @@ test('pick a transition from the button at a cut; change it and the J/L cut in P
   // Properties of the second clip
   const now = (await cuts())[0]
   await win.mouse.click(now.x + 20, now.y) // inside the overlap: the incoming clip is on top
-  await expect(win.locator('[data-testid=prop-transition]')).toHaveValue('slideleft')
-  await win.locator('[data-testid=prop-transition]').selectOption('circleopen')
+  await expect(win.locator('[data-testid=prop-transition]')).toHaveAttribute('data-value', 'slideleft')
+  await choose(win, 'prop-transition', 'circleopen')
   await expect.poll(async () => (await view()).video[1].transition?.type).toBe('circleopen')
   const sound = win.locator('[data-testid=prop-audio-cut]')
   await sound.focus()
