@@ -30,6 +30,8 @@ export type Command =
   | { type: 'setLook'; ids: ItemId[]; filter?: FilterRef | null; adjust?: Adjust | null }
   /** Transition into each clip from the previous one (null removes); ids 'all' = every cut. */
   | { type: 'setTransition'; ids: ItemId[] | 'all'; transition: { type: TransitionType; durationMs: number } | null }
+  /** J/L cut at the cut into clip `id`: + = the previous clip's sound runs on over this picture (L), − = this clip's sound starts early (J), 0 = plain. */
+  | { type: 'setAudioCut'; id: ItemId; ms: number }
   /** Several edits as one step (one undo); if any fails, none apply. */
   | { type: 'batch'; commands: Command[]; summary?: string }
 
@@ -156,6 +158,15 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
   const done = (summary: string, affected: ItemId[]): CommandResult => ({ project: n, summary, affected })
 
   switch (cmd.type) {
+    case 'setAudioCut': {
+      const i = n.video.findIndex((x) => x.id === cmd.id)
+      if (i < 0) fail('not_found', `video clip ${cmd.id} not found`)
+      if (i === 0) fail('invalid', `${cmd.id} is the first clip: a J/L cut goes on the clip after a cut`)
+      const ms = int(cmd.ms)
+      if (ms) n.video[i].audioCutMs = ms; else delete n.video[i].audioCutMs
+      return done(ms ? `${ms > 0 ? 'L' : 'J'}-cut of ${Math.abs(ms) / 1000} s into ${cmd.id}` : `plain cut into ${cmd.id}`, [cmd.id])
+    }
+
     case 'setTransition': {
       const ids = cmd.ids === 'all' ? n.video.slice(1).map((v) => v.id) : cmd.ids
       for (const id of ids) {
@@ -264,7 +275,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       const cut = at - item.startMs
       if (cut < MIN_ITEM_MS || dur(item) - cut < MIN_ITEM_MS) fail('invalid', `split point ${fmtTime(at)} is not inside ${cmd.id}`)
       const second = { ...structuredClone(item), id: ids(track === 'video' ? 'c' : 'a'), startMs: at, inMs: item.inMs + cut }
-      if ('transition' in second) delete second.transition // a split is a plain cut
+      if (track === 'video') { delete (second as VideoItem).transition; delete (second as VideoItem).audioCutMs } // a split is a plain cut
       item.outMs = item.inMs + cut
       ;(n[track] as Array<VideoItem | AudioItem>).splice(index + 1, 0, second)
       if (track === 'video') ripple(n.video)
@@ -358,7 +369,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       const { track, index } = locate(n, cmd.id)
       if (track === 'video') {
         const copy = { ...structuredClone(n.video[index]), id: ids('c') }
-        delete copy.transition
+        delete copy.transition; delete copy.audioCutMs
         n.video.splice(index + 1, 0, copy)
         ripple(n.video)
         return done(`duplicated ${itemName(n, cmd.id)} as ${copy.id}`, [copy.id])
@@ -407,7 +418,7 @@ export function applyCommand(p: Project, cmd: Command, gen: IdGen): CommandResul
       let at = index + 1
       if (cut >= MIN_ITEM_MS && dur(v) - cut >= MIN_ITEM_MS) {
         const second: VideoItem = { ...structuredClone(v), id: ids('c'), inMs: v.inMs + cut }
-        delete second.transition
+        delete second.transition; delete second.audioCutMs
         v.outMs = v.inMs + cut
         n.video.splice(index + 1, 0, second)
       } else if (cut < MIN_ITEM_MS) at = index

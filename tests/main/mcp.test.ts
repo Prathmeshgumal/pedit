@@ -68,8 +68,8 @@ describe('pedit MCP server', () => {
     const c = await connect(h.token)
     const names = (await c.listTools()).tools.map((t) => t.name).sort()
     expect(names).toEqual(['add_captions', 'add_clip', 'add_font', 'add_text', 'adjust_color', 'apply_filter', 'create_filter', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline',
-      'import_lut', 'list_filters', 'list_fonts', 'list_media', 'list_text_styles', 'look_at_media', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
-      'set_format', 'set_music', 'set_transform', 'set_volume', 'split_item', 'trim_item', 'update_text'])
+      'import_lut', 'list_filters', 'list_fonts', 'list_media', 'list_text_styles', 'list_transitions', 'look_at_media', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
+      'set_audio_cut', 'set_format', 'set_music', 'set_transform', 'set_transition', 'set_volume', 'split_item', 'trim_item', 'update_text'])
   })
 
   it('extract_audio and set_transform land in the draft', async () => {
@@ -161,6 +161,33 @@ describe('pedit MCP server', () => {
     writeFileSync(cube, 'LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n')
     expect((await c.callTool({ name: 'import_lut', arguments: { name: 'My LUT', path: cube } }) as R).isError).toBeFalsy()
     expect(text(await c.callTool({ name: 'list_filters', arguments: {} }))).toContain('My LUT [saved, LUT]')
+  })
+
+  it('transitions and J/L cuts: list, set on a cut or all cuts, and they show in get_timeline', async () => {
+    const c = await connect(h.token)
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 0 } })
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 1 } })
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 2 } })
+    const list = text(await c.callTool({ name: 'list_transitions', arguments: {} }))
+    expect(list).toContain('fade: Cross dissolve')
+    expect(list).toContain('zoomin')
+    const [, b, cc] = session.state().view.video.map((v) => v.id)
+    const one = await c.callTool({ name: 'set_transition', arguments: { ids: [b], type: 'fadeblack', durationMs: 600, expectedRevision: 3 } }) as R
+    expect(one.isError).toBeFalsy()
+    expect(session.state().view.video[1].transition).toEqual({ type: 'fadeblack', durationMs: 600 })
+    const all = await c.callTool({ name: 'set_transition', arguments: { type: 'fade', expectedRevision: 4 } }) as R
+    expect(all.isError).toBeFalsy()
+    expect(session.state().view.video.map((v) => v.transition?.type ?? null)).toEqual([null, 'fade', 'fade'])
+    const bad = await c.callTool({ name: 'set_transition', arguments: { ids: [session.state().view.video[0].id], type: 'fade', expectedRevision: 5 } }) as R
+    expect(bad.isError).toBe(true)
+    const j = await c.callTool({ name: 'set_audio_cut', arguments: { id: cc, ms: -700, expectedRevision: 5 } }) as R
+    expect(j.isError).toBeFalsy()
+    const tl = text(await c.callTool({ name: 'get_timeline', arguments: {} }))
+    expect(tl).toContain('← fade 0.5s')
+    expect(tl).toContain('J-cut 0.7s')
+    const off = await c.callTool({ name: 'set_transition', arguments: { ids: [b], type: null, expectedRevision: 6 } }) as R
+    expect(off.isError).toBeFalsy()
+    expect(session.state().view.video[1].transition).toBeUndefined()
   })
 
   it('look_at_media returns a picture Claude can see, with the frame times', async () => {

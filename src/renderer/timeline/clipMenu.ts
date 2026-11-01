@@ -1,4 +1,5 @@
 import { IDENTITY_TRANSFORM, type Project } from '@shared/model'
+import { DEFAULT_TRANSITION_MS, TRANSITIONS, transitionMs } from '@shared/transitions'
 import type { Command } from '@shared/commands'
 import { edit, useUi } from '../store'
 import type { MenuItem } from '../ContextMenu'
@@ -50,3 +51,21 @@ export function itemMenu(p: Project, id: string, openCrop: (id: string) => void)
   ]
 }
 
+
+/** The menu of a cut's button: pick the transition into clip `id`, its length, or use it on every cut. */
+export function transitionMenu(p: Project, id: string): MenuItem[] {
+  const i = p.video.findIndex((v) => v.id === id)
+  const cur = p.video[i]?.transition
+  const ms = cur?.durationMs ?? DEFAULT_TRANSITION_MS
+  const real = cur ? transitionMs(p.video, i) : 0
+  const tick = (on: boolean, label: string): string => `${on ? '✓ ' : '\u2003'}${label}`
+  return [
+    { label: tick(!cur, 'No transition (cut)'), onClick: () => void edit({ type: 'setTransition', ids: [id], transition: null }) },
+    ...TRANSITIONS.map((t, k): MenuItem => ({ label: tick(cur?.type === t.id, t.label), hint: t.hint || undefined, sep: k === 0,
+      onClick: () => void edit({ type: 'setTransition', ids: [id], transition: { type: t.id, durationMs: ms } }) })),
+    ...[300, 500, 1000, 2000].map((d, k): MenuItem => ({ label: tick(!!cur && cur.durationMs === d, `Length ${d / 1000} s`), sep: k === 0, disabled: !cur,
+      onClick: () => { if (cur) void edit({ type: 'setTransition', ids: [id], transition: { type: cur.type, durationMs: d } }) } })),
+    ...(cur && real < cur.durationMs ? [{ label: `\u2003(shortened to ${(real / 1000).toFixed(1)} s by the clip lengths)`, disabled: true, onClick: () => {} }] : []),
+    { label: 'Use on every cut', sep: true, disabled: !cur, onClick: () => { if (cur) void edit({ type: 'setTransition', ids: 'all', transition: cur }) } }
+  ]
+}

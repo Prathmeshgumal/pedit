@@ -7,8 +7,8 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 2. Story file (story.md) Claude edits from  ✅
 3. Fonts library (bundled + Claude can add Google Fonts) and caption/text style presets, text animations  ✅
 4. Filters & adjustments (built-in looks + Claude can create new ones, LUT .cube support), per-clip strength  ✅
-5. Transitions between clips (editor + Claude)  🟡 half done: model, export, clip-sound crossfades done; preview, editor picker and Claude tool not yet
-6. J-cut / L-cut (editor + Claude)  ⏳
+5. Transitions between clips (editor + Claude)  ✅
+6. J-cut / L-cut (editor + Claude)  ✅
 7. Handy cutting: blade tool (B) and a scissors button on the playhead  ⏳
 8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ⏳
 9. More Claude tools + guide on how to edit well (research)  ⏳
@@ -36,6 +36,13 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - **Export colour:** clips with a look are converted to RGB with BT.709 both ways (what browsers assume for HD video) for the LUT; clips without a look are untouched, so plain exports are exactly as before.
 - **Bug found by the test and fixed:** a look without a LUT file was ready instantly, which made the preview draw twice and keep the wrong (unfiltered) picture.
 - **Transitions (part 1):** a transition sits on the clip *after* a cut and makes the two clips overlap by its length (at most half of either clip), so the video gets shorter by that much, like CapCut. 18 types matching ffmpeg's `xfade` (cross dissolve, dip to black/white, soft wipes, wipes, slides, circle open/close, zoom in). Export uses `xfade` for transitions and `concat` for plain cuts; tested with real ffmpeg. Clip sound is now one piece per clip mixed together, crossfading under transitions; this also prepares J/L cuts (`audioCutMs`, logic + tests done). **Not yet:** the preview still shows transitions as a hard cut (the two-clip GPU blend is written but not wired in), and there's no editor picker or Claude tool for them yet.
+
+- **Transitions in the preview use ffmpeg's own formulas.** Each of the 18 transitions is written as a small GPU program copied from ffmpeg's `xfade` source, so what you see is what you export. A test exports a row of 8 transitions and compares preview and export pixels at two moments of each: they differ by 1–4 out of 255. (My first try had the wipes mirrored; the test caught it, and I fixed it from the ffmpeg source rather than by guessing.)
+- **Preview plays clips on two alternating lanes,** so during a transition both clips decode at once. A lane whose next clip hasn't started yet only decodes 4 frames ahead, to save memory.
+- **Picking a transition:** each cut on the timeline has a small round button at the bottom of the video track; click it for the list, lengths (0.3 / 0.5 / 1 / 2 s) and "Use on every cut". The overlap is shaded. The button is at the bottom, not the middle, so grabbing a clip's edge still trims. The selected clip's Properties also show "Cut into this clip": transition, length and the J/L sound slider. Clicking inside an overlap selects the incoming clip (the one drawn on top).
+- **J/L cuts:** stored on the incoming clip as one number (− = J, this sound starts early; + = L, the old sound runs on). It is limited by the clip lengths and by footage that actually exists before/after the clip; when it's limited, Properties and Claude's timeline say so. Sound edges get a 30 ms fade so they don't click.
+- **Claude tools:** `list_transitions`, `set_transition` (one cut or all cuts, `null` removes), `set_audio_cut`. `get_timeline` shows `← fade 0.5s` and `J-cut 0.7s` on clips. The tool text tells Claude plain cuts are the norm.
+- **Also fixed:** sliders in Properties saved one step behind when moved with the arrow keys.
 
 ## Extra: no native menu bar ✅
 - `Menu.setApplicationMenu(null)`: the File/Edit/View/Window bar is gone on every screen.

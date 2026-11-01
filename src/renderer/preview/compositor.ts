@@ -15,6 +15,9 @@ export type Layer = {
   vignette?: number
 }
 
+/** Two clips blended during a transition; kind is transitionIndex(type), progress runs 1 → 0 like ffmpeg's xfade. */
+export interface TransitionDraw { kind: number; progress: number; a: Layer; b: Layer }
+
 const FULL = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 // q is the quad position in [0,1]² with y down; m maps it to the source texture (crop, rotate, flip, cover)
 const VS = `#version 300 es
@@ -31,6 +34,52 @@ void main(){
   o = c * a;
 }`
 
+// The transition pass: A (outgoing) and B (incoming) are whole frames rendered to textures. Each case is ffmpeg's
+// xfade formula, where P goes 1 → 0 and its mix(x, y, m) = x*m + y*(1-m) (fmix here). Kinds follow TRANSITIONS.
+const XVS = `#version 300 es
+in vec2 p; out vec2 q;
+void main(){ q = vec2(p.x*.5+.5, .5-p.y*.5); gl_Position = vec4(p,0.,1.); }`
+const XFS = `#version 300 es
+precision highp float;
+in vec2 q; uniform sampler2D A; uniform sampler2D B; uniform int kind; uniform float P; uniform vec2 size; out vec4 o;
+vec4 ta(vec2 u){ return texture(A, vec2(u.x, 1. - u.y)); }
+vec4 tb(vec2 u){ return texture(B, vec2(u.x, 1. - u.y)); }
+vec4 fmix(vec4 x, vec4 y, float m){ return x * m + y * (1. - m); }
+void main(){
+  vec2 u = q; vec4 a = ta(u), b = tb(u);
+  if (kind == 0) o = fmix(a, b, P);
+  else if (kind == 1 || kind == 2) { vec4 c = kind == 1 ? vec4(0., 0., 0., 1.) : vec4(1.); o = fmix(fmix(a, c, smoothstep(.8, 1., P)), fmix(c, b, smoothstep(.2, 1., P)), P); }
+  else if (kind <= 6) { float x = kind == 3 ? u.x : kind == 4 ? 1. - u.x : kind == 5 ? u.y : 1. - u.y; o = fmix(b, a, smoothstep(0., 1., 1. + x - 2. * P)); }
+  else if (kind == 7) o = u.x > P ? b : a;
+  else if (kind == 8) o = u.x > 1. - P ? a : b;
+  else if (kind == 9) o = u.y > P ? b : a;
+  else if (kind == 10) o = u.y > 1. - P ? a : b;
+  else if (kind == 11) { float s = u.x - P; o = s >= 0. ? tb(vec2(s, u.y)) : ta(vec2(s + 1., u.y)); }
+  else if (kind == 12) { float s = u.x + P; o = s < 1. ? tb(vec2(s, u.y)) : ta(vec2(s - 1., u.y)); }
+  else if (kind == 13) { float s = u.y - P; o = s >= 0. ? tb(vec2(u.x, s)) : ta(vec2(u.x, s + 1.)); }
+  else if (kind == 14) { float s = u.y + P; o = s < 1. ? tb(vec2(u.x, s)) : ta(vec2(u.x, s - 1.)); }
+  else if (kind == 15 || kind == 16) {
+    float d = length((u - .5) * size) / length(size * .5);
+    o = kind == 15 ? fmix(a, b, smoothstep(0., 1., d + (P - .5) * 3.)) : fmix(b, a, smoothstep(0., 1., d + (.5 - P) * 3.));
+  }
+  else { float zf = smoothstep(.5, 1., P); o = fmix(ta((u - .5) * zf + .5), b, smoothstep(0., .5, P)); }
+  o.a = 1.;
+}`
+
+function program(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
+  const prog = gl.createProgram()!
+  for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]] as const) {
+    const sh = gl.createShader(type)!
+    gl.shaderSource(sh, src); gl.compileShader(sh)
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh) ?? 'shader error')
+    gl.attachShader(prog, sh)
+  }
+  gl.bindAttribLocation(prog, 0, 'p')
+  gl.linkProgram(prog)
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) ?? 'link error')
+  return prog
+}
+
 /** WebGL2 compositor: draws layers bottom-to-top, video with center-crop cover fit. */
 export class Compositor {
   private gl: WebGL2RenderingContext
@@ -40,24 +89,26 @@ export class Compositor {
   private lutTex: WebGLTexture | null = null
   private lutKey = ''
   private textures: WebGLTexture[] = []
+  private prog: WebGLProgram
+  private xprog: WebGLProgram
+  private xu: Record<'A' | 'B' | 'kind' | 'P' | 'size', WebGLUniformLocation> = {} as never
+  private fbos: { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }[] = []
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: true, desynchronized: true })
     if (!gl) throw new Error('WebGL2 not available')
     this.gl = gl
-    const prog = gl.createProgram()!
-    for (const [type, src] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, FS]] as const) {
-      const sh = gl.createShader(type)!
-      gl.shaderSource(sh, src); gl.compileShader(sh)
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh) ?? 'shader error')
-      gl.attachShader(prog, sh)
-    }
-    gl.linkProgram(prog); gl.useProgram(prog)
+    const prog = program(gl, VS, FS)
+    this.prog = prog
+    this.xprog = program(gl, XVS, XFS)
+    gl.useProgram(this.xprog)
+    for (const k of ['A', 'B', 'kind', 'P', 'size'] as const) this.xu[k] = gl.getUniformLocation(this.xprog, k)!
+    gl.uniform1i(this.xu.A, 2); gl.uniform1i(this.xu.B, 3)
+    gl.useProgram(prog)
     const buf = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, buf)
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW)
-    const loc = gl.getAttribLocation(prog, 'p')
-    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     this.m = gl.getUniformLocation(prog, 'm')!
     this.a = gl.getUniformLocation(prog, 'a')!
     for (const k of ['useLut', 'lutN', 'vig', 'size', 's', 'l'] as const) this.u[k] = gl.getUniformLocation(prog, k)!
@@ -85,24 +136,73 @@ export class Compositor {
     return this.textures[i]
   }
 
-  draw(layers: Layer[]): void {
+  /** Draw layers bottom-to-top; with a transition, its two clips are blended first and the layers go on top. */
+  draw(layers: Layer[], trans?: TransitionDraw): void {
     const gl = this.gl
-    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT)
-    layers.forEach((l, i) => {
-      const src = l.frame
-      const w = 'displayWidth' in src ? src.displayWidth : src.width
-      const h = 'displayHeight' in src ? src.displayHeight : src.height
-      if (!w || !h) return
-      gl.bindTexture(gl.TEXTURE_2D, this.texture(i))
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src as TexImageSource)
-      gl.uniformMatrix3fv(this.m, false, l.fit === 'cover' ? uvMatrix(w, h, l.transform ?? IDENTITY_TRANSFORM, this.canvas.width, this.canvas.height) : l.uv ?? FULL)
-      gl.uniform1f(this.a, l.alpha ?? 1)
-      gl.uniform1f(this.u.useLut, l.lut ? 1 : 0)
-      if (l.lut) { this.bindLut(l.lut); gl.uniform1f(this.u.lutN, l.lut.size) }
-      gl.uniform1f(this.u.vig, l.vignette ? vignetteAngle(l.vignette) : 0)
-      gl.uniform2f(this.u.size, this.canvas.width, this.canvas.height)
+    const W = this.canvas.width, H = this.canvas.height
+    if (trans) {
+      ;[trans.a, trans.b].forEach((l, i) => {
+        const f = this.fbo(i, W, H)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb)
+        gl.viewport(0, 0, W, H)
+        gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT)
+        this.drawLayer(l, i)
+      })
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, W, H)
+      gl.useProgram(this.xprog)
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.fbos[0].tex)
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.fbos[1].tex)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.uniform1i(this.xu.kind, trans.kind)
+      gl.uniform1f(this.xu.P, Math.min(1, Math.max(0, trans.progress)))
+      gl.uniform2f(this.xu.size, W, H)
+      gl.disable(gl.BLEND)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-    })
+      gl.enable(gl.BLEND)
+      gl.useProgram(this.prog)
+    } else {
+      gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT)
+    }
+    layers.forEach((l, i) => this.drawLayer(l, i + 2))
+  }
+
+  private drawLayer(l: Layer, slot: number): void {
+    const gl = this.gl
+    const src = l.frame
+    const w = 'displayWidth' in src ? src.displayWidth : src.width
+    const h = 'displayHeight' in src ? src.displayHeight : src.height
+    if (!w || !h) return
+    gl.bindTexture(gl.TEXTURE_2D, this.texture(slot))
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src as TexImageSource)
+    gl.uniformMatrix3fv(this.m, false, l.fit === 'cover' ? uvMatrix(w, h, l.transform ?? IDENTITY_TRANSFORM, this.canvas.width, this.canvas.height) : l.uv ?? FULL)
+    gl.uniform1f(this.a, l.alpha ?? 1)
+    gl.uniform1f(this.u.useLut, l.lut ? 1 : 0)
+    if (l.lut) { this.bindLut(l.lut); gl.uniform1f(this.u.lutN, l.lut.size) }
+    gl.uniform1f(this.u.vig, l.vignette ? vignetteAngle(l.vignette) : 0)
+    gl.uniform2f(this.u.size, this.canvas.width, this.canvas.height)
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+  }
+
+  /** An offscreen frame the size of the canvas (one per transition side). */
+  private fbo(i: number, w: number, h: number): { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number } {
+    const gl = this.gl
+    let f = this.fbos[i]
+    if (!f) {
+      const tex = gl.createTexture()!
+      gl.bindTexture(gl.TEXTURE_2D, tex)
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v)
+      f = this.fbos[i] = { fb: gl.createFramebuffer()!, tex, w: 0, h: 0 }
+    }
+    if (f.w !== w || f.h !== h) {
+      gl.bindTexture(gl.TEXTURE_2D, f.tex)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, f.tex, 0)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      f.w = w; f.h = h
+    }
+    return f
   }
 
   /** Upload the clip's LUT as a 3D texture on unit 1 (kept until a different look shows). */

@@ -1,4 +1,5 @@
 import { laneOf, type ItemId, type Project } from '@shared/model'
+import { transitionMs } from '@shared/transitions'
 
 export type Track = 'video' | 'text' | 'audio'
 export const RULER_H = 22
@@ -59,14 +60,16 @@ export function layoutTimeline(p: Project, pxPerMs: number, scrollMs: number): L
 export function hitTest(layout: LaidOut[], rows: TrackRow[], x: number, y: number): { id: ItemId; zone: 'body' | 'left-edge' | 'right-edge' } | null {
   const row = rowAt(rows, y)
   if (!row || x < HEADER_W) return null
-  for (const it of layout) {
-    if (it.row !== row.key || x < it.x || x > it.x + it.w) continue
+  const zoneOf = (it: LaidOut): 'body' | 'left-edge' | 'right-edge' => {
     const edge = Math.min(EDGE_PX, it.w / 3)
-    if (x - it.x <= edge) return { id: it.id, zone: 'left-edge' }
-    if (it.x + it.w - x <= edge) return { id: it.id, zone: 'right-edge' }
-    return { id: it.id, zone: 'body' }
+    return x - it.x <= edge ? 'left-edge' : it.x + it.w - x <= edge ? 'right-edge' : 'body'
   }
-  return null
+  const inRow = layout.filter((it) => it.row === row.key && x >= it.x && x <= it.x + it.w)
+  if (!inRow.length) return null
+  // two clips overlap under a transition: the incoming one is drawn on top, so it wins unless the pointer is on its left edge
+  const top = inRow[inRow.length - 1]
+  const hit = inRow.length > 1 && zoneOf(top) !== 'left-edge' ? top : inRow[0]
+  return { id: hit.id, zone: zoneOf(hit) }
 }
 
 export function snapMs(ms: number, candidates: number[], tolPx: number, pxPerMs: number): number {
@@ -78,3 +81,25 @@ export function snapMs(ms: number, candidates: number[], tolPx: number, pxPerMs:
   }
   return best
 }
+
+/** The button at a cut between two video clips (click → transition menu). `id` is the incoming clip. */
+export interface CutBadge { id: ItemId; x: number; y: number; ms: number; overlapX: number; overlapW: number; has: boolean }
+export const BADGE_R = 8
+
+export function cutBadges(p: Project, rows: TrackRow[], pxPerMs: number, scrollMs: number): CutBadge[] {
+  const row = rows.find((r) => r.key === 'video')
+  if (!row) return []
+  const out: CutBadge[] = []
+  for (let i = 1; i < p.video.length; i++) {
+    const v = p.video[i], prev = p.video[i - 1]
+    // too zoomed out to fit a button between the two clips
+    if (Math.min(v.outMs - v.inMs, prev.outMs - prev.inMs) * pxPerMs < BADGE_R * 3) continue
+    const d = transitionMs(p.video, i)
+    const ms = v.startMs + d / 2
+    out.push({ id: v.id, ms, x: msToX(ms, pxPerMs, scrollMs), y: RULER_H + row.y + row.h - BADGE_R - 3, overlapX: msToX(v.startMs, pxPerMs, scrollMs), overlapW: d * pxPerMs, has: d > 0 })
+  }
+  return out
+}
+
+export const badgeAt = (badges: CutBadge[], x: number, y: number): CutBadge | null =>
+  badges.find((b) => Math.hypot(x - b.x, y - b.y) <= BADGE_R + 1) ?? null

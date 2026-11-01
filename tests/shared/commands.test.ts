@@ -333,4 +333,17 @@ describe('transitions', () => {
     const v = s.p.video
     for (let i = 1; i < v.length; i++) expect(v[i].startMs).toBe(v[i - 1].startMs + v[i - 1].outMs - v[i - 1].inMs - (v[i].transition ? 500 : 0))
   })
+  it('J/L cuts: setAudioCut stores the offset on the incoming clip; 0 removes it; a split is a plain cut', () => {
+    const s = setup()
+    for (const m of ['m_a', 'm_b']) s.run({ type: 'addClip', mediaId: m })
+    s.run({ type: 'setAudioCut', id: 'c_000002', ms: -800 })
+    expect(s.p.video[1].audioCutMs).toBe(-800)
+    expect(starts(s.p)).toEqual([0, 5000]) // the picture doesn't move
+    expect(s.err({ type: 'setAudioCut', id: 'c_000001', ms: 500 })).toBe('invalid')
+    expect(s.err({ type: 'setAudioCut', id: 'nope', ms: 500 })).toBe('not_found')
+    s.run({ type: 'splitItem', id: 'c_000002', atMs: 7000 })
+    expect(s.p.video.map((v) => v.audioCutMs ?? 0)).toEqual([0, -800, 0])
+    s.run({ type: 'setAudioCut', id: 'c_000002', ms: 0 })
+    expect('audioCutMs' in s.p.video[1]).toBe(false)
+  })
 })

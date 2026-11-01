@@ -33,8 +33,12 @@ export class AudioOut {
   /** How far ahead of the clock (ms) a media time is. */
   aheadMs(mediaMs: number): number { return mediaMs - this.nowMs() }
 
-  /** Play `buffer` placed at media time `atMs`, limited to the media window [loMs, hiMs). */
-  schedule(buffer: AudioBuffer, atMs: number, gain = 1, loMs = -Infinity, hiMs = Infinity): void {
+  /**
+   * Play `buffer` placed at media time `atMs`, limited to the media window [loMs, hiMs).
+   * `env` (0..1 at a media time) fades it: the gain ramps linearly across the piece, which is exact for linear fades
+   * since pieces are a few tens of ms.
+   */
+  schedule(buffer: AudioBuffer, atMs: number, gain = 1, loMs = -Infinity, hiMs = Infinity, env?: (ms: number) => number): void {
     if (!this.running) return
     const now = this.nowMs()
     const from = Math.max(atMs, loMs, now)
@@ -43,9 +47,16 @@ export class AudioOut {
     const node = this.ctx.createBufferSource()
     node.buffer = buffer
     let target: AudioNode = this.ctx.destination
-    if (gain !== 1) { const g = this.ctx.createGain(); g.gain.value = gain; g.connect(target); target = g }
-    node.connect(target)
     const when = this.ctxStart + (from - this.mediaStartMs) / 1000
+    const g0 = env ? env(from) : 1, g1 = env ? env(to) : 1
+    if (gain !== 1 || g0 !== 1 || g1 !== 1) {
+      const g = this.ctx.createGain()
+      const at = Math.max(when, this.ctx.currentTime)
+      g.gain.setValueAtTime(gain * g0, at)
+      if (g1 !== g0) g.gain.linearRampToValueAtTime(gain * g1, at + (to - from) / 1000)
+      g.connect(target); target = g
+    }
+    node.connect(target)
     node.start(Math.max(when, this.ctx.currentTime), (from - atMs) / 1000, (to - from) / 1000)
     node.onended = () => this.nodes.delete(node)
     this.nodes.add(node)

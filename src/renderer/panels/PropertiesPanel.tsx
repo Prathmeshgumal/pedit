@@ -3,6 +3,8 @@ import { edit, fmtDur, useUi } from '../store'
 import { IDENTITY_TRANSFORM, TEXT_ANIMS, type TextAnim, type TextStyle } from '@shared/model'
 import { useLibrary } from '../library'
 import type { Adjust } from '@shared/look'
+import { DEFAULT_TRANSITION_MS, TRANSITIONS, transitionMs, type TransitionType } from '@shared/transitions'
+import { audioCutAt } from '@shared/clipAudio'
 import { promptDialog } from '../ContextMenu'
 import { CropDialog } from './CropDialog'
 import { mirrorSelected, rotateSelected } from '../timeline/actions'
@@ -28,7 +30,8 @@ function Volume({ id, volume }: { id: string; volume: number }) {
 function Slider({ label, testid, value, min, max, step = 1, fmt = String, onCommit }: { label: string; testid?: string; value: number; min: number; max: number; step?: number; fmt?: (v: number) => string; onCommit: (v: number) => void }) {
   const [v, setV] = useState(value)
   useEffect(() => setV(value), [value])
-  const commit = (): void => { if (v !== value) onCommit(v) }
+  // read the input itself: on key-up the state from this render can be one step behind
+  const commit = (e: { currentTarget: HTMLInputElement }): void => { const x = Number(e.currentTarget.value); if (x !== value) onCommit(x) }
   return (
     <Row label={label}>
       <input data-testid={testid} type="range" min={min} max={max} step={step} value={v} className="flex-1"
@@ -43,6 +46,37 @@ const ADJ_ROWS: Array<{ key: keyof Adjust; label: string; min: number }> = [
   { key: 'shadows', label: 'Shadows', min: -100 }, { key: 'saturation', label: 'Saturation', min: -100 }, { key: 'vibrance', label: 'Vibrance', min: -100 },
   { key: 'temperature', label: 'Temp', min: -100 }, { key: 'tint', label: 'Tint', min: -100 }, { key: 'fade', label: 'Fade', min: 0 }, { key: 'vignette', label: 'Vignette', min: 0 }
 ]
+
+/** The cut into this clip: its transition and J/L sound offset. */
+function CutProps({ id }: { id: string }) {
+  const p = useUi((s) => s.project)!
+  const i = p.video.findIndex((x) => x.id === id)
+  if (i <= 0) return null
+  const v = p.video[i]
+  const tr = v.transition
+  const real = audioCutAt(p, i)
+  const cut = v.audioCutMs ?? 0
+  const hint = cut === 0 ? 'Sound and picture cut together. Drag left for a J-cut (this sound starts early), right for an L-cut (the last sound runs on).'
+    : cut < 0 ? `J-cut: this clip's sound starts ${(-real / 1000).toFixed(1)}s before its picture.` : `L-cut: the previous clip's sound runs ${(real / 1000).toFixed(1)}s into this picture.`
+  return (
+    <div className="mb-2 border-t border-neutral-800 pt-2">
+      <div className="mb-1 text-[11px] font-medium text-neutral-300">Cut into this clip</div>
+      <Row label="Transition">
+        <select data-testid="prop-transition" className="input flex-1" value={tr?.type ?? ''}
+          onChange={(e) => void edit({ type: 'setTransition', ids: [id], transition: e.target.value ? { type: e.target.value as TransitionType, durationMs: tr?.durationMs ?? DEFAULT_TRANSITION_MS } : null })}>
+          <option value="">None (cut)</option>
+          {TRANSITIONS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+      </Row>
+      {tr && <Slider label="Length" testid="prop-transition-ms" value={tr.durationMs} min={100} max={3000} step={100} fmt={(x) => `${(Math.min(x, transitionMs(p.video, i) || x) / 1000).toFixed(1)}s`}
+        onCommit={(x) => void edit({ type: 'setTransition', ids: [id], transition: { type: tr.type, durationMs: x } })} />}
+      <Slider label="Sound" testid="prop-audio-cut" value={v.audioCutMs ?? 0} min={-2000} max={2000} step={100}
+        fmt={(x) => (x === 0 ? '0' : `${x < 0 ? 'J' : 'L'} ${(Math.abs(x) / 1000).toFixed(1)}`)}
+        onCommit={(x) => void edit({ type: 'setAudioCut', id, ms: x })} />
+      <div className="-mt-1 text-[10px] leading-snug text-neutral-500">{hint}{cut !== 0 && real !== cut ? ' (shortened: not enough footage or clip length)' : ''}</div>
+    </div>
+  )
+}
 
 function ColorProps({ id }: { id: string }) {
   const lib = useLibrary()
@@ -194,6 +228,7 @@ export function PropertiesPanel() {
               {v.transform && <button className="btn" onClick={() => void edit({ type: 'setTransform', id: v.id, transform: IDENTITY_TRANSFORM })}>Reset</button>}
             </div>
           )}
+          {v && <CutProps id={v.id} />}
           {v && <ColorProps id={v.id} />}
           {crop && v && <CropDialog itemId={v.id} onClose={() => setCrop(false)} />}
         </>

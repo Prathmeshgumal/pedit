@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type WheelEvent } from 'react'
 import { useUi, edit } from '../store'
 import { getPlayer } from '../preview/instance'
-import { HEADER_W, RULER_H, contentHeight, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
+import { HEADER_W, RULER_H, badgeAt, contentHeight, cutBadges, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
 import { drawPlayhead, drawTimeline, type DrawState } from './draw'
 import { dragToCommand, snapCandidates, type Zone } from './interact'
 import { Toolbar, MIN_ZOOM, MAX_ZOOM } from './Toolbar'
 import { deleteSelected, deleteSide, splitAtPlayhead, selectedClip, canAct } from './actions'
-import { itemMenu, freezeAtPlayhead } from './clipMenu'
+import { itemMenu, freezeAtPlayhead, transitionMenu } from './clipMenu'
 import { openMenu } from '../ContextMenu'
 import { CropDialog } from '../panels/CropDialog'
 import { timelineDurationMs } from '@shared/model'
@@ -114,7 +114,12 @@ export function TimelineCanvas() {
       trackY: (t: Track) => rowY(t === 'audio' ? 'audio:0' : t),
       rowY,
       rows: () => rowsRef.current.map((x) => x.key),
-      left: () => canvas.current!.getBoundingClientRect().left + HEADER_W
+      left: () => canvas.current!.getBoundingClientRect().left + HEADER_W,
+      cuts: () => {
+        const r = canvas.current!.getBoundingClientRect()
+        const p = useUi.getState().session?.view
+        return p ? cutBadges(p, rowsRef.current, pxPerMs, scrollMs).map((b) => ({ id: b.id, has: b.has, x: r.left + b.x, y: r.top + b.y })) : []
+      }
     }
   })
 
@@ -141,6 +146,8 @@ export function TimelineCanvas() {
     const { x, y } = local(e)
     canvas.current!.setPointerCapture(e.pointerId)
     if (y < RULER_H) { drag.current = { kind: 'scrub' }; seekTo(x); return }
+    const cut = badgeAt(cutBadges(project, rowsRef.current, pxPerMs, scrollMs), x, y)
+    if (cut) { openMenu(e, transitionMenu(project, cut.id)); return }
     const hit = hitTest(layoutRef.current, rowsRef.current, x, y)
     if (!hit) { useUi.getState().selectItem(null); if (x > HEADER_W) seekTo(x); return }
     useUi.getState().selectItem(hit.id)
@@ -164,6 +171,7 @@ export function TimelineCanvas() {
     const d = drag.current
     if (!d) {
       const hit = y >= RULER_H ? hitTest(layoutRef.current, rowsRef.current, x, y) : null
+      if (y >= RULER_H && badgeAt(cutBadges(project, rowsRef.current, pxPerMs, scrollMs), x, y)) { setCursor('pointer'); return }
       setCursor(hit ? (hit.zone === 'body' ? 'grab' : 'ew-resize') : y < RULER_H ? 'pointer' : 'default')
       return
     }

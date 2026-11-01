@@ -11,6 +11,7 @@ import type { FontInfo } from '../../shared/fonts'
 import type { TextPreset } from '../../shared/textPresets'
 import type { FilterPreset } from '../../shared/filterPresets'
 import type { Adjust } from '../../shared/look'
+import { DEFAULT_TRANSITION_MS, TRANSITIONS, TRANSITION_IDS, type TransitionType } from '../../shared/transitions'
 
 /** Work the MCP tools hand back to the main process (it owns ffmpeg and the project folder). */
 export interface McpServices {
@@ -212,6 +213,15 @@ export function registerTools(server: McpServer, getSession: () => EditSession |
     if (!services?.filters) return err('filters are not available here')
     try { const f = await services.filters.importCube(a.name as string, (a.description as string | undefined) ?? '', a.path as string, a.adjust as Adjust | undefined); return ok(`saved filter "${f.name}" from the LUT`) } catch (e) { return err((e as Error).message) }
   })
+
+  read('list_transitions', 'Transitions you can put on a cut between two video clips (id: name — when it suits). The clips overlap by its length, so the video gets that much shorter.',
+    () => TRANSITIONS.map((t) => `${t.id}: ${t.label}${t.hint ? ` — ${t.hint}` : ''}`).join('\n'))
+  edit('set_transition', `Put a transition on the cut INTO each clip in \`ids\` (the clip after the cut; not the first clip). \`ids\` default to every cut. type null removes it. durationMs default ${DEFAULT_TRANSITION_MS}; it is limited to half of either clip. Use sparingly: plain cuts are the norm, a transition marks a change of place, time or mood.`,
+    { ids: z.array(z.string()).optional(), type: z.enum(TRANSITION_IDS).nullable(), durationMs: z.number().int().min(100).max(5000).optional() },
+    (a) => ({ type: 'setTransition', ids: a.ids ?? 'all', transition: a.type ? { type: a.type as TransitionType, durationMs: a.durationMs ?? DEFAULT_TRANSITION_MS } : null }))
+  edit('set_audio_cut', 'J/L cut at the cut into clip `id`: the sound changes before or after the picture. ms < 0 = J-cut (this clip\'s sound starts that much early, under the previous picture: leads into a scene), ms > 0 = L-cut (the previous clip\'s sound runs on over this picture), 0 = plain cut. Typical 300-1500. Only matters for clips with sound.',
+    { id: z.string(), ms: z.number().int().min(-5000).max(5000) },
+    (a) => ({ type: 'setAudioCut', id: a.id, ms: a.ms }))
 
   register('list_fonts', { description: 'Fonts you can use for text (family and kind). Any Google Font can be added with add_font.', inputSchema: {} }, async () => {
     if (!services?.fonts) return err('fonts are not available here')

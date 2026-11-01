@@ -1,6 +1,8 @@
 import { timelineDurationMs, type Project } from './model'
 import { fmtTime } from './time'
 import { transformText } from './commands'
+import { transitionMs } from './transitions'
+import { audioCutAt } from './clipAudio'
 export { fmtTime } from './time'
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`
@@ -10,10 +12,13 @@ export function timelineSummary(p: Project, opts: { draft: boolean; revision: nu
   const s = p.settings
   const head = `rev ${opts.revision}${opts.draft ? ' · DRAFT' : ''} · ${s.aspect} ${s.width}x${s.height} ${s.fps}fps · length ${fmtTime(timelineDurationMs(p))}`
   const block = (title: string, lines: string[]): string => `${title}\n${lines.length ? lines.join('\n') : '  (empty)'}`
-  const video = p.video.map((v) => {
+  const video = p.video.map((v, i) => {
     const tf = transformText(v.transform)
     const lk = v.look ? [v.look.filter ? `filter ${v.look.filter.name}${v.look.filter.strength < 1 ? ` ${Math.round(v.look.filter.strength * 100)}%` : ''}` : '', v.look.adjust ? `adjust ${JSON.stringify(v.look.adjust)}` : ''].filter(Boolean).join(' ') : ''
-    return `  ${v.id} ${fmtTime(v.startMs)}-${fmtTime(v.startMs + v.outMs - v.inMs)} ${name(v.mediaId)} [src ${fmtTime(v.inMs)}-${fmtTime(v.outMs)}]${v.volume !== 1 ? ` vol ${pct(v.volume)}` : ''}${tf ? ` ${tf}` : ''}${lk ? ` ${lk}` : ''}`
+    const tr = v.transition ? ` ← ${v.transition.type} ${transitionMs(p.video, i) / 1000}s` : ''
+    const jlReal = v.audioCutMs ? audioCutAt(p, i) : 0
+    const jl = v.audioCutMs ? ` ${v.audioCutMs < 0 ? 'J' : 'L'}-cut ${Math.abs(v.audioCutMs) / 1000}s${jlReal !== v.audioCutMs ? ` (only ${Math.abs(jlReal) / 1000}s possible: clip lengths or footage before/after)` : ''}` : ''
+    return `  ${v.id} ${fmtTime(v.startMs)}-${fmtTime(v.startMs + v.outMs - v.inMs)} ${name(v.mediaId)} [src ${fmtTime(v.inMs)}-${fmtTime(v.outMs)}]${v.volume !== 1 ? ` vol ${pct(v.volume)}` : ''}${tf ? ` ${tf}` : ''}${lk ? ` ${lk}` : ''}${tr}${jl}`
   })
   const where = (st: Project['text'][number]['style']): string => {
     const rot = st.rotation ? ` rot ${Math.round(st.rotation)}` : ''

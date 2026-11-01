@@ -2,7 +2,7 @@ import type { MediaItem, Project } from '@shared/model'
 import type { DraftDiff } from '@shared/session'
 import { mediaUrl } from '@shared/mediaUrl'
 import { MAX_FILMSTRIP_FRAMES } from './constants'
-import { HEADER_W, RULER_H, layoutTimeline, msToX, type LaidOut, type Track, type TrackRow } from './layout'
+import { BADGE_R, HEADER_W, RULER_H, cutBadges, layoutTimeline, msToX, type LaidOut, type Track, type TrackRow } from './layout'
 
 const COLORS: Record<Track, string> = { video: '#2f6db5', text: '#b5822f', audio: '#2e8b57' }
 
@@ -164,6 +164,22 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
     if (s.diff?.changed.includes(it.id)) { ctx.strokeStyle = '#b39dff'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, iw - 3, h - 2); ctx.lineWidth = 1 }
     if (s.selected === it.id) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, iw - 3, h - 2); ctx.lineWidth = 1 }
     ctx.globalAlpha = 1
+  }
+  // cuts: the overlap of a transition is shaded, and each cut has a button to pick one
+  const vrow = rowOf.get('video')
+  if (vrow) for (const b of cutBadges(p, s.rows, s.pxPerMs, s.scrollMs)) {
+    if (b.x < HEADER_W - BADGE_R || b.x > w + BADGE_R) continue
+    if (b.has) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(b.overlapX, RULER_H + vrow.y + 16, b.overlapW, vrow.h - 18)
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.moveTo(b.overlapX, RULER_H + vrow.y + vrow.h - 2); ctx.lineTo(b.overlapX + b.overlapW, RULER_H + vrow.y + 16); ctx.stroke()
+    }
+    ctx.beginPath(); ctx.arc(b.x, b.y, BADGE_R, 0, Math.PI * 2)
+    ctx.fillStyle = b.has ? '#e8e8ee' : 'rgba(20,20,24,0.8)'; ctx.fill()
+    ctx.strokeStyle = b.has ? '#e8e8ee' : 'rgba(255,255,255,0.55)'; ctx.stroke()
+    // bow-tie mark: two triangles meeting at the cut
+    ctx.fillStyle = b.has ? '#1a1a1e' : 'rgba(255,255,255,0.8)'
+    ctx.beginPath(); ctx.moveTo(b.x - 4, b.y - 3.5); ctx.lineTo(b.x, b.y); ctx.lineTo(b.x - 4, b.y + 3.5); ctx.fill()
+    ctx.beginPath(); ctx.moveTo(b.x + 4, b.y - 3.5); ctx.lineTo(b.x, b.y); ctx.lineTo(b.x + 4, b.y + 3.5); ctx.fill()
   }
   if (s.dropHint) {
     const x = msToX(s.dropHint.ms, s.pxPerMs, s.scrollMs)
