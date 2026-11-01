@@ -68,7 +68,7 @@ describe('pedit MCP server', () => {
     const c = await connect(h.token)
     const names = (await c.listTools()).tools.map((t) => t.name).sort()
     expect(names).toEqual(['add_captions', 'add_clip', 'add_font', 'add_text', 'adjust_color', 'apply_filter', 'create_filter', 'duplicate_item', 'extract_audio', 'freeze_frame', 'get_project_settings', 'get_story', 'get_timeline',
-      'import_lut', 'list_filters', 'list_fonts', 'list_media', 'list_text_styles', 'list_transitions', 'look_at_media', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
+      'import_lut', 'list_filters', 'list_fonts', 'list_media', 'list_text_styles', 'list_transitions', 'look_at_media', 'look_at_timeline', 'move_item', 'remove_item', 'replace_clip', 'restyle_text', 'save_text_style',
       'set_audio_cut', 'set_format', 'set_music', 'set_transform', 'set_transition', 'set_volume', 'split_item', 'trim_item', 'update_text'])
   })
 
@@ -188,6 +188,22 @@ describe('pedit MCP server', () => {
     const off = await c.callTool({ name: 'set_transition', arguments: { ids: [b], type: null, expectedRevision: 6 } }) as R
     expect(off.isError).toBeFalsy()
     expect(session.state().view.video[1].transition).toBeUndefined()
+  })
+
+  it('look_at_timeline shows the finished picture at evenly spaced or chosen times', async () => {
+    await h.close()
+    const asked: number[][] = []
+    h = await startMcpServer(() => session, { ...services(), lookAtTimeline: async (times) => { asked.push(times); return Buffer.from('sheet').toString('base64') } })
+    const c = await connect(h.token)
+    const empty = await c.callTool({ name: 'look_at_timeline', arguments: {} }) as R
+    expect(empty.isError).toBe(true)
+    await c.callTool({ name: 'add_clip', arguments: { mediaId: 'm_a', expectedRevision: 0 } }) // 5 s
+    const r = await c.callTool({ name: 'look_at_timeline', arguments: { count: 4 } }) as { content: Array<{ type: string; text?: string }> }
+    expect(r.content[0].type).toBe('image')
+    expect(asked[0]).toEqual([625, 1875, 3125, 4375])
+    expect(r.content[1].text).toContain('0:00.6')
+    await c.callTool({ name: 'look_at_timeline', arguments: { atMs: [100, 99999] } })
+    expect(asked[1]).toEqual([100, 4999]) // clamped to the timeline
   })
 
   it('look_at_media returns a picture Claude can see, with the frame times', async () => {

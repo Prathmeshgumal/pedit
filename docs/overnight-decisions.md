@@ -11,7 +11,7 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 6. J-cut / L-cut (editor + Claude)  ✅
 7. Handy cutting: blade tool (B) and a scissors button on the playhead  ✅
 8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ✅
-9. More Claude tools + guide on how to edit well (research)  ⏳
+9. More Claude tools + guide on how to edit well (research)  ✅
 10. Package (AppImage), full test run  ⏳
 
 ## Decisions
@@ -51,6 +51,10 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - **Effort is a 6-step slider** (Auto, Low, Medium, High, Extra high, Max) with the level's name next to it; **model** is a small dropdown beside it. Both still save straight away and apply from your next message.
 - **All dropdowns are the app's own** (`src/renderer/ui/Select.tsx`): native ones can't be styled on Linux and looked like 2005. Keyboard works (arrows, Enter, Escape, type a letter). The font list shows each font in its own face; filters and text styles are grouped "Built in" / "Saved".
 - **Sliders are restyled** (thin track, round thumb). Two-sided ones (contrast, temperature, J/L…) fill from the middle, so you can see how far from neutral a value is.
+
+- **`look_at_timeline`: Claude can now watch its own edit.** It renders a grid of frames of the finished picture (Claude's draft if open), with framing, colour, transitions and text, exactly as the export builds them (same ffmpeg graph), but from the small preview files at 480 px, so it takes a second or two instead of an export. Claude picks evenly spaced frames or exact moments.
+- **Guide for Claude** (`src/main/claude/editor-guide.md`) gained: how to use transitions and J/L cuts, a "check your work" loop (look, fix, look again, at most 3 times), and craft rules from standard editing practice: open on the strongest shot, vary wide/medium/close, cut on action, plain cuts by default with one transition style, J/L cuts for smooth scene changes, 9:16 safe areas for text, caption reading speed (~15 characters a second, 2 lines max), match colour before applying a look, duck music under speech.
+- Chat shows the new read-only tools as quiet steps ("watched the edit", "looked at transitions").
 
 ## Extra: no native menu bar ✅
 - `Menu.setApplicationMenu(null)`: the File/Edit/View/Window bar is gone on every screen.

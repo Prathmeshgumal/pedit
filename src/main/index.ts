@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
-import { runExport, exportTempDir } from './export/run'
-import { detectEncoders, ffmpegPath, fontsDir } from './media/ffmpeg'
+import { runExport, exportTempDir, writeLookFiles } from './export/run'
+import { buildSheetArgs } from './export/graph'
+import { detectEncoders, ffmpegPath, fontsDir, runFfmpeg } from './media/ffmpeg'
 import { FontLibrary } from './library/fonts'
 import { TextStyleLibrary } from './library/textStyles'
 import { FilterLibrary } from './library/filters'
 import type { Adjust } from '../shared/look'
-import { rm } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { CH, type ChatTag, type WindowAction } from '../shared/ipc'
@@ -99,6 +100,25 @@ async function saveCopy(): Promise<string | null> {
   await editor.flush()
   await editor.store.saveCopy(r.filePath)
   return r.filePath
+}
+
+/** Claude's look_at_timeline: the export graph on the preview files, small, as one jpeg grid. */
+async function lookAtTimeline(times: number[]): Promise<string> {
+  const p = editor.session?.state().view
+  if (!p || !win) throw new Error('no project open')
+  const even = (x: number): number => Math.max(2, Math.round(x / 2) * 2)
+  const long = 480, { width: W, height: H } = p.settings
+  const cell = W >= H ? { width: long, height: even((long * H) / W) } : { width: even((long * W) / H), height: long }
+  const tmp = await exportTempDir()
+  try {
+    const pngs = await renderTextPngs(win.webContents, p.text, cell.width, cell.height, tmp)
+    const looks = await writeLookFiles(p, tmp)
+    const out = join(tmp, 'sheet.jpg')
+    await runFfmpeg(buildSheetArgs(p, times, cell, Math.min(4, times.length), out, pngs, looks))
+    return (await readFile(out)).toString('base64')
+  } finally {
+    await rm(tmp, { recursive: true, force: true })
+  }
 }
 
 function registerIpc(): void {
@@ -223,7 +243,7 @@ async function createWindow(): Promise<void> {
   })
   win.on('page-title-updated', (e) => e.preventDefault())
   // test hook: lets e2e tests drive main-process helpers through app.evaluate
-  ;(globalThis as Record<string, unknown>).__peditMain = { renderTextPngs: (items: TextItem[], w: number, h: number, dir: string) => renderTextPngs(win!.webContents, items, w, h, dir) }
+  ;(globalThis as Record<string, unknown>).__peditMain = { lookAtTimeline, renderTextPngs: (items: TextItem[], w: number, h: number, dir: string) => renderTextPngs(win!.webContents, items, w, h, dir) }
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else await win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
 }
@@ -236,6 +256,7 @@ app.whenReady().then(async () => {
     lookAtMedia: (id, count) => editor.lookAtMedia(id, count),
     freezeFrame: (id, atMs, durationMs, rev) => editor.freezeFrame(id, atMs, durationMs, 'claude', rev),
     getStory: () => editor.getStory(),
+    lookAtTimeline,
     ...libraryServices()
   })
   await mcp.writeConfig(mcpConfigPath())

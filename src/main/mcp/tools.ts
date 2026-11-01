@@ -19,6 +19,8 @@ export interface McpServices {
   lookAtMedia(mediaId: string, count: number): Promise<{ jpegBase64: string; times: number[] | null }>
   /** Extract the frame and insert it as a freeze into Claude's draft; returns the edit summary. */
   freezeFrame(itemId: string, atMs: number, durationMs: number, expectedRevision: number): Promise<string>
+  /** The finished picture (clips, looks, transitions, text) at these timeline times, as one base64 jpeg grid. */
+  lookAtTimeline?(times: number[]): Promise<string>
   /** The project's story.md ('' if none). */
   getStory(): Promise<string>
   fonts?: { list(): Promise<FontInfo[]>; find(family: string): Promise<FontInfo | null>; addGoogle(family: string): Promise<FontInfo> }
@@ -287,6 +289,28 @@ export function registerTools(server: McpServer, getSession: () => EditSession |
       return { content: [{ type: 'image', data: r.jpegBase64, mimeType: 'image/jpeg' }, { type: 'text', text: caption }] }
     } catch (e) {
       return err(`could not read ${m.name}: ${(e as Error).message}`)
+    }
+  })
+  register('look_at_timeline', {
+    description: 'See your edit as the viewer will: frames of the finished video (your draft if open) with framing, colour, transitions and text, in one grid. Use it after editing to check the cut, the text (size, position, readability) and the look; then fix what is off. Pass atMs for exact moments (e.g. around a cut or a title), or count for evenly spaced frames.',
+    inputSchema: {
+      count: z.number().int().min(2).max(16).optional().describe('Evenly spaced frames over the timeline (default 8)'),
+      atMs: z.array(z.number().int().min(0)).min(1).max(16).optional().describe('Exact timeline times to show instead')
+    }
+  }, async (a) => {
+    const s = getSession()
+    if (!s) return err('no project open')
+    if (!services?.lookAtTimeline) return err('look_at_timeline is not available here')
+    const p = s.state().view
+    const total = timelineDurationMs(p)
+    if (!p.video.length || total <= 0) return err('the timeline has no video yet: add clips first')
+    const count = (a.count as number | undefined) ?? 8
+    const times = (a.atMs as number[] | undefined)?.map((t) => Math.min(t, total - 1)) ?? Array.from({ length: count }, (_, i) => Math.round(((i + 0.5) * total) / count))
+    try {
+      const jpeg = await services.lookAtTimeline(times)
+      return { content: [{ type: 'image', data: jpeg, mimeType: 'image/jpeg' }, { type: 'text', text: `Frames at ${times.map(fmtTime).join(', ')} (timeline time, left to right, top to bottom${s.state().draftActive ? ', your draft' : ''})` }] }
+    } catch (e) {
+      return err(`could not render the timeline: ${(e as Error).message}`)
     }
   })
 }

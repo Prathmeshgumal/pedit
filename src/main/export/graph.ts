@@ -38,7 +38,6 @@ const sec = (ms: number): string => String(Math.round(ms) / 1000)
 const isHdr = (m: MediaItem): boolean => m.colorTransfer === 'hlg' || m.colorTransfer === 'pq'
 const AFMT = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo'
 
-/** Pure: the full ffmpeg argv for exporting p (original files, not proxies). Output goes to `<outPath>.part`. */
 /** A rendered text image: the full-frame PNG, and the text block's centre (needed to scale it in place for 'pop'). */
 export type TextPng = string | { path: string; cx: number; cy: number }
 
@@ -56,23 +55,28 @@ export function lookFilters(l: ClipLookFiles | undefined): string[] {
     'scale=out_color_matrix=bt709:out_range=tv']
 }
 
-export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<ItemId, TextPng>, enc: EncoderInfo, looks: Record<ItemId, ClipLookFiles> = {}): string[] {
-  const { width: W, height: H } = outputSize(o.aspect, o.resolution)
-  const fps = resolveFps(p, o)
-  const total = timelineDurationMs(p)
-  const args: string[] = ['-hide_banner', '-y']
-  const fc: string[] = []
-  let n = 0
+/** Graph being built: input args, filter chains, the next input number and the current video label. */
+interface Graph { args: string[]; fc: string[]; n: number; vLabel: string }
+
+/**
+ * Video clips (framing, look, fit to W×H) joined by cuts and transitions, into g.vLabel.
+ * `proxies`: read the small preview files (already tone-mapped) instead of the originals — for quick looks, not export.
+ */
+function clipsStage(g: Graph, p: Project, W: number, H: number, fps: number, looks: Record<ItemId, ClipLookFiles>, proxies = false): void {
+  const { args, fc } = g
   for (const [i, v] of p.video.entries()) {
     const m = p.media.find((x) => x.id === v.mediaId)!
+    const path = proxies && m.proxyPath ? m.proxyPath : m.path
+    const hdr = isHdr(m) && path === m.path
     const dur = sec(v.outMs - v.inMs)
-    if (m.kind === 'image') args.push('-loop', '1', '-framerate', String(fps), '-t', dur, '-i', m.path)
-    else args.push('-ss', sec(v.inMs), '-t', dur, '-i', m.path)
+    if (m.kind === 'image') args.push('-loop', '1', '-framerate', String(fps), '-t', dur, '-i', path)
+    else args.push('-ss', sec(v.inMs), '-t', dur, '-i', path)
     // drop frames and shrink first: tone-mapping 4K120 HDR at full size is the slow part
-    const vf = [`fps=${fps}`, ...transformFilters(v.transform ?? IDENTITY_TRANSFORM), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(isHdr(m) ? [TONEMAP_VF] : []), ...lookFilters(looks[v.id]), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
-    fc.push(`[${n}:v]${vf.join(',')}[v${i}]`)
-    n++
+    const vf = [`fps=${fps}`, ...transformFilters(v.transform ?? IDENTITY_TRANSFORM), `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, ...(hdr ? [TONEMAP_VF] : []), ...lookFilters(looks[v.id]), 'setsar=1', 'format=yuv420p', `trim=duration=${dur}`, 'setpts=PTS-STARTPTS']
+    fc.push(`[${g.n}:v]${vf.join(',')}[v${i}]`)
+    g.n++
   }
+
   // plain cuts are joined with concat; a transition joins the runs with xfade at the incoming clip's start
   const runs: number[][] = []
   p.video.forEach((_v, i) => { if (i === 0 || transitionMs(p.video, i) > 0) runs.push([i]); else runs.at(-1)!.push(i) })
@@ -81,12 +85,58 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
     fc.push(`${r.map((i) => `[v${i}]`).join('')}concat=n=${r.length}:v=1:a=0[run${k}]`)
     return `run${k}`
   })
-  let vLabel = runLabel[0]
+  g.vLabel = runLabel[0]
   for (let k = 1; k < runs.length; k++) {
     const i = runs[k][0], v = p.video[i]
-    fc.push(`[${vLabel}][${runLabel[k]}]xfade=transition=${v.transition!.type}:duration=${sec(transitionMs(p.video, i))}:offset=${sec(v.startMs)}[xf${k}]`)
-    vLabel = `xf${k}`
+    fc.push(`[${g.vLabel}][${runLabel[k]}]xfade=transition=${v.transition!.type}:duration=${sec(transitionMs(p.video, i))}:offset=${sec(v.startMs)}[xf${k}]`)
+    g.vLabel = `xf${k}`
   }
+}
+
+/** Text images overlaid on g.vLabel, with their animations. */
+function textStage(g: Graph, p: Project, W: number, H: number, fps: number, textPngs: Record<ItemId, TextPng>): void {
+  const total = timelineDurationMs(p)
+  for (const [k, t] of p.text.filter((t) => textPngs[t.id] && t.startMs < total).entries()) {
+    const png = textPngs[t.id]
+    const file = typeof png === 'string' ? png : png.path
+    const centre = typeof png === 'string' ? { cx: W / 2, cy: H / 2 } : { cx: png.cx, cy: png.cy }
+    g.args.push('-loop', '1', '-framerate', String(fps), '-t', sec(total), '-i', file)
+    const out = `cv${k + 1}`
+    const an = ffTextAnim(t, W, H, centre)
+    const pre = ['format=rgba', ...(an.scale ? [`scale=w='max(2,trunc(iw*${an.scale}))':h='max(2,trunc(ih*${an.scale}))':eval=frame`] : []), ...an.fades]
+    const src = pre.length > 1 ? `[${g.n}:v]${pre.join(',')}[tx${k}];` : ''
+    const input = src ? `[tx${k}]` : `[${g.n}:v]`
+    g.fc.push(`${src}[${g.vLabel}]${input}overlay=x='${an.x}':y='${an.y}':eof_action=pass:enable='between(t,${sec(t.startMs)},${sec(t.startMs + t.durationMs)})'[${out}]`)
+    g.vLabel = out
+    g.n++
+  }
+}
+
+/**
+ * Pure: ffmpeg argv for a contact sheet of the finished picture at `times` (ms): the same clips, looks, transitions
+ * and text as the export, from the preview files at a small size. Frames go left-to-right, top-to-bottom.
+ */
+export function buildSheetArgs(p: Project, times: number[], cell: { width: number; height: number }, cols: number, out: string,
+  textPngs: Record<ItemId, TextPng>, looks: Record<ItemId, ClipLookFiles> = {}): string[] {
+  const fps = 10
+  const g: Graph = { args: ['-hide_banner', '-y'], fc: [], n: 0, vLabel: '' }
+  clipsStage(g, p, cell.width, cell.height, fps, looks, true)
+  textStage(g, p, cell.width, cell.height, fps, textPngs)
+  const frames = [...new Set(times.map((t) => Math.round((t * fps) / 1000)))]
+  const rows = Math.ceil(frames.length / cols)
+  g.fc.push(`[${g.vLabel}]select='${frames.map((f) => `eq(n,${f})`).join('+')}',tile=${cols}x${rows}:padding=4:color=0x202024,format=yuvj420p[sheet]`)
+  return [...g.args, '-filter_complex', g.fc.join(';'), '-map', '[sheet]', '-frames:v', '1', '-q:v', '4', '-f', 'image2', '-update', '1', out]
+}
+
+/** Pure: the full ffmpeg argv for exporting p (original files, not proxies). Output goes to `<outPath>.part`. */
+export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<ItemId, TextPng>, enc: EncoderInfo, looks: Record<ItemId, ClipLookFiles> = {}): string[] {
+  const { width: W, height: H } = outputSize(o.aspect, o.resolution)
+  const fps = resolveFps(p, o)
+  const total = timelineDurationMs(p)
+  const g: Graph = { args: ['-hide_banner', '-y'], fc: [], n: 0, vLabel: '' }
+  const { args, fc } = g
+  clipsStage(g, p, W, H, fps, looks)
+  let n = g.n
 
   // each clip's sound is its own piece (fades for transitions, J/L cuts), mixed over a silent bed as long as the video
   fc.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${sec(total)},${AFMT}[abed]`)
@@ -102,21 +152,10 @@ export function buildExportArgs(p: Project, o: ExportOptions, textPngs: Record<I
     n++
   }
 
-  for (const [k, t] of p.text.filter((t) => textPngs[t.id] && t.startMs < total).entries()) {
-    const png = textPngs[t.id]
-    const file = typeof png === 'string' ? png : png.path
-    const centre = typeof png === 'string' ? { cx: W / 2, cy: H / 2 } : { cx: png.cx, cy: png.cy }
-    args.push('-loop', '1', '-framerate', String(fps), '-t', sec(total), '-i', file)
-    const out = `cv${k + 1}`
-    const an = ffTextAnim(t, W, H, centre)
-    const pre = ['format=rgba', ...(an.scale ? [`scale=w='max(2,trunc(iw*${an.scale}))':h='max(2,trunc(ih*${an.scale}))':eval=frame`] : []), ...an.fades]
-    const src = pre.length > 1 ? `[${n}:v]${pre.join(',')}[tx${k}];` : ''
-    const input = src ? `[tx${k}]` : `[${n}:v]`
-    fc.push(`${src}[${vLabel}]${input}overlay=x='${an.x}':y='${an.y}':eof_action=pass:enable='between(t,${sec(t.startMs)},${sec(t.startMs + t.durationMs)})'[${out}]`)
-    vLabel = out
-    n++
-  }
-  fc.push(`[${vLabel}]format=yuv420p[vout]`)
+  g.n = n
+  textStage(g, p, W, H, fps, textPngs)
+  n = g.n
+  fc.push(`[${g.vLabel}]format=yuv420p[vout]`)
 
   const music = p.audio.filter((a) => a.startMs < total)
   for (const [k, a] of music.entries()) {

@@ -7,6 +7,7 @@ import { emptyProject, type MediaItem, type Project, type TextItem } from '@shar
 import { detectEncoders, ffmpegPath, ffprobePath, type EncoderInfo } from '../../src/main/media/ffmpeg'
 import { probe } from '../../src/main/media/probe'
 import { runExport, type ExportOptions } from '../../src/main/export/run'
+import { buildSheetArgs } from '../../src/main/export/graph'
 import { f } from './fixtures'
 import { TONEMAP_VF } from '../../src/main/media/color'
 
@@ -231,5 +232,23 @@ describe('runExport', () => {
     const run = runExport(await reel(), o, { renderTextPngs: (i, w, h) => fakeText(i, w, h, dir), enc, onProgress: (p) => { if (p > 5) ac.abort() }, signal: ac.signal })
     await expect(run).rejects.toThrow()
     expect(readdirSync(dir).filter((x) => x.startsWith('c.mp4'))).toEqual([])
+  }, 120000)
+
+  it('renders a contact sheet of the finished picture at chosen times (look_at_timeline)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pedit-sheet-'))
+    const p = await reel()
+    const cell = { width: 320, height: 180 }
+    const pngs = await fakeText(p.text, cell.width, cell.height, dir)
+    const out = join(dir, 'sheet.jpg')
+    execFileSync(ffmpegPath(), ['-loglevel', 'error', ...buildSheetArgs(p, [500, 1500, 3500, 6000], cell, 2, out, pngs)])
+    const st = probeJson(out).streams[0]
+    expect([st.width, st.height]).toEqual([2 * 320 + 4, 2 * 180 + 4])
+    // the white "text" box is in the first two frames (text runs 0–2 s) and not in the last two
+    const W = 644, H = 364
+    const g = execFileSync(ffmpegPath(), ['-v', 'error', '-i', out, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 64 << 20 })
+    const centre = (col: number, row: number): number => regionMean(g, W, col * 324 + 140, row * 184 + 80, 40, 20)
+    expect(centre(0, 0)).toBeGreaterThan(200)
+    expect(centre(1, 0)).toBeGreaterThan(200)
+    expect(Math.min(centre(0, 1), centre(1, 1))).toBeLessThan(200)
   }, 120000)
 })

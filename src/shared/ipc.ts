@@ -16,7 +16,7 @@ export type ChatEvent =
   | { kind: 'done'; sessionId: string | null; ok: boolean; error?: 'not_installed' | 'not_logged_in' | 'usage_limit' | 'stopped' | 'crashed'; message?: string; usage?: unknown }
 export interface ClaudeStatus { ok: boolean; reason?: string; version?: string }
 /** Tools that only read; the chat shows them dimmed. */
-export const READ_TOOLS: Record<string, string> = { get_timeline: 'looked at the timeline', list_media: 'looked at your media', get_project_settings: 'looked at the settings', look_at_media: 'looked at a clip' }
+export const READ_TOOLS: Record<string, string> = { get_timeline: 'looked at the timeline', list_media: 'looked at your media', get_project_settings: 'looked at the settings', look_at_media: 'looked at a clip', look_at_timeline: 'watched the edit', list_transitions: 'looked at transitions', list_filters: 'looked at filters', list_fonts: 'looked at fonts', list_text_styles: 'looked at text styles', get_story: 'read the story' }
 
 export const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'] as const
 export const CLAUDE_EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const
