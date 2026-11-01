@@ -191,10 +191,25 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, s: DrawSt
 }
 
 /** Playhead on its own overlay canvas, so playback never redraws the tracks. */
-export function drawPlayhead(ctx: CanvasRenderingContext2D, w: number, H: number, playheadMs: number, pxPerMs: number, scrollMs: number): void {
+export const SCISSORS_Y = 14
+export const SCISSORS_R = 7
+
+/** Playhead (with a scissors button when there is something under it to cut) and the blade tool's cut line. */
+export function drawPlayhead(ctx: CanvasRenderingContext2D, w: number, H: number, playheadMs: number, pxPerMs: number, scrollMs: number,
+  opts: { scissors?: boolean; blade?: { x: number; y: number; h: number } | null } = {}): void {
   ctx.clearRect(0, 0, w, H)
+  if (opts.blade && opts.blade.x >= HEADER_W) {
+    const bx = Math.round(opts.blade.x) + 0.5
+    ctx.strokeStyle = '#ff5a5a'; ctx.setLineDash([3, 2]); ctx.beginPath(); ctx.moveTo(bx, opts.blade.y); ctx.lineTo(bx, opts.blade.y + opts.blade.h); ctx.stroke(); ctx.setLineDash([])
+  }
   const px = Math.round(msToX(playheadMs, pxPerMs, scrollMs)) + 0.5
   if (px < HEADER_W) return
   ctx.strokeStyle = '#f5f5f5'; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke()
   ctx.fillStyle = '#f5f5f5'; ctx.beginPath(); ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 7); ctx.fill()
+  if (opts.scissors) {
+    ctx.beginPath(); ctx.arc(px, SCISSORS_Y, SCISSORS_R, 0, Math.PI * 2); ctx.fillStyle = '#f5f5f5'; ctx.fill()
+    ctx.fillStyle = '#1a1a1e'; ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('✂', px, SCISSORS_Y + 0.5)
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic'
+  }
 }

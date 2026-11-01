@@ -17,6 +17,9 @@ interface UiState {
   chatRunning: boolean
   snapping: boolean
   setSnapping(v: boolean): void
+  /** Timeline pointer tool: select/move, or blade (click a clip to cut it there). */
+  tool: 'select' | 'blade'
+  setTool(t: 'select' | 'blade'): void
   setChatRunning(v: boolean): void
   selectItem(id: ItemId | null): void
   previewClip(id: MediaId | null): void
@@ -38,6 +41,8 @@ export const useUi = create<UiState>((set) => ({
   chatRunning: false,
   snapping: true,
   setSnapping: (snapping) => set({ snapping }),
+  tool: 'select',
+  setTool: (tool) => set({ tool }),
   setChatRunning: (chatRunning) => set({ chatRunning }),
   selectItem: (selectedItemId) => set({ selectedItemId }),
   previewClip: (clipPreviewId) => set({ clipPreviewId }),

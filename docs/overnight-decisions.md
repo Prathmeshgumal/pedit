@@ -9,7 +9,7 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 4. Filters & adjustments (built-in looks + Claude can create new ones, LUT .cube support), per-clip strength  ✅
 5. Transitions between clips (editor + Claude)  ✅
 6. J-cut / L-cut (editor + Claude)  ✅
-7. Handy cutting: blade tool (B) and a scissors button on the playhead  ⏳
+7. Handy cutting: blade tool (B) and a scissors button on the playhead  ✅
 8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ⏳
 9. More Claude tools + guide on how to edit well (research)  ⏳
 10. Package (AppImage), full test run  ⏳
@@ -43,6 +43,9 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - **J/L cuts:** stored on the incoming clip as one number (− = J, this sound starts early; + = L, the old sound runs on). It is limited by the clip lengths and by footage that actually exists before/after the clip; when it's limited, Properties and Claude's timeline say so. Sound edges get a 30 ms fade so they don't click.
 - **Claude tools:** `list_transitions`, `set_transition` (one cut or all cuts, `null` removes), `set_audio_cut`. `get_timeline` shows `← fade 0.5s` and `J-cut 0.7s` on clips. The tool text tells Claude plain cuts are the norm.
 - **Also fixed:** sliders in Properties saved one step behind when moved with the arrow keys.
+
+- **Blade tool:** B (or the ✂ in the timeline toolbar) turns it on; a red dashed line shows where it will cut; click any clip, sound or text to cut it there. Cuts land on a frame and snap to the playhead when close. V or Escape goes back to select. Ctrl+B and S still split at the playhead as before.
+- **Scissors on the playhead:** a small ✂ circle sits on the playhead in the ruler whenever there is something under the playhead to cut; click it to split there. Clicking anywhere else on the ruler still scrubs.
 
 ## Extra: no native menu bar ✅
 - `Menu.setApplicationMenu(null)`: the File/Edit/View/Window bar is gone on every screen.

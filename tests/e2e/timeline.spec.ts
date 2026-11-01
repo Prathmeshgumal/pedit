@@ -254,3 +254,41 @@ test('F toggles full-screen preview', async () => {
   await expect.poll(() => win.evaluate(() => document.fullscreenElement === null)).toBe(true)
   await app.close()
 })
+
+test('blade tool cuts a clip where you click; the scissors on the playhead cut there', async () => {
+  const app = await launch({ PEDIT_PROJECT_DIR: join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'BL.pedit') })
+  const win = await app.firstWindow()
+  await pedit(win, 'importPaths', [join(FIX, 'day1', 'h264_1080p30.mp4')])
+  await waitReady(win, 1)
+  const st0 = await pedit<{ real: { media: Array<{ id: string }> } }>(win, 'getState')
+  await pedit(win, 'edit', { type: 'addClip', mediaId: st0.real.media[0].id })
+  await win.waitForTimeout(300)
+  const clip = (await items(win)).find((i) => i.track === 'video')!
+  const fps = 30
+
+  // B turns the blade on; clicking at 40% of the clip cuts there (on a frame)
+  await win.locator('[data-testid=timeline-canvas]').hover({ position: { x: 2, y: 2 } })
+  await win.keyboard.press('b')
+  await expect(win.locator('[data-testid=tool-blade]')).toHaveAttribute('data-on', 'true')
+  const x = clip.left + (clip.right - clip.left) * 0.4
+  await win.mouse.move(x, clip.cy)
+  await win.mouse.click(x, clip.cy)
+  await expect.poll(async () => (await videoState(win)).length).toBe(2)
+  const cutMs = (await videoState(win))[0].outMs
+  expect(Math.abs(cutMs - 2000)).toBeLessThan(100)
+  expect(Math.abs((cutMs * fps) / 1000 - Math.round((cutMs * fps) / 1000))).toBeLessThan(0.02)
+
+  // Escape goes back to select; the playhead's scissors cut the clip under it
+  await win.keyboard.press('Escape')
+  await expect(win.locator('[data-testid=tool-select]')).toHaveAttribute('data-on', 'true')
+  await call(win, 'seek', 3500)
+  await win.waitForTimeout(300)
+  const r = await win.locator('[data-testid=timeline-canvas]').boundingBox()
+  const ph = await win.evaluate(() => (window as unknown as { __peditTimeline: { left(): number } }).__peditTimeline.left())
+  const after = (await items(win)).filter((i) => i.track === 'video').sort((a, b) => a.left - b.left)
+  const pxPerMs = (after[1].right - after[1].left) / (5000 - cutMs)
+  await win.mouse.click(ph + 3500 * pxPerMs, r!.y + 14)
+  await expect.poll(async () => (await videoState(win)).length).toBe(3)
+  expect((await videoState(win))[1].outMs).toBe(3500)
+  await app.close()
+})

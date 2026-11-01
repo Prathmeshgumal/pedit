@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type WheelEvent } from 'react'
 import { useUi, edit } from '../store'
 import { getPlayer } from '../preview/instance'
-import { HEADER_W, RULER_H, badgeAt, contentHeight, cutBadges, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
-import { drawPlayhead, drawTimeline, type DrawState } from './draw'
+import { HEADER_W, RULER_H, badgeAt, msToX, contentHeight, cutBadges, hitTest, rowAt, snapMs, trackRows, xToMs, type LaidOut, type Track, type TrackRow } from './layout'
+import { SCISSORS_R, SCISSORS_Y, drawPlayhead, drawTimeline, type DrawState } from './draw'
 import { dragToCommand, snapCandidates, type Zone } from './interact'
 import { Toolbar, MIN_ZOOM, MAX_ZOOM } from './Toolbar'
 import { deleteSelected, deleteSide, splitAtPlayhead, selectedClip, canAct } from './actions'
@@ -19,6 +19,8 @@ type Drag =
 export function TimelineCanvas() {
   const session = useUi((s) => s.session)
   const selected = useUi((s) => s.selectedItemId)
+  const tool = useUi((s) => s.tool)
+  const [blade, setBlade] = useState<{ x: number; y: number; h: number } | null>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
@@ -80,6 +82,8 @@ export function TimelineCanvas() {
   }, [playhead])
 
   const redraw = useCallback(() => setTick((n) => n + 1), [])
+  const canSplit = canAct(project, selected, playhead).split
+  useEffect(() => { if (tool !== 'blade') setBlade(null) }, [tool])
 
   useEffect(() => {
     const c = canvas.current!
@@ -100,8 +104,8 @@ export function TimelineCanvas() {
     if (c.width !== Math.round(width * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(width * dpr); c.height = Math.round(H * dpr) }
     const ctx = c.getContext('2d')!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    drawPlayhead(ctx, width, H, project ? playhead : -1e9, pxPerMs, scrollMs)
-  }, [playhead, width, pxPerMs, scrollMs, project, H])
+    drawPlayhead(ctx, width, H, project ? playhead : -1e9, pxPerMs, scrollMs, { scissors: canSplit, blade: tool === 'blade' ? blade : null })
+  }, [playhead, width, pxPerMs, scrollMs, project, H, canSplit, tool, blade])
 
   // expose layout for end-to-end tests
   useEffect(() => {
@@ -141,14 +145,30 @@ export function TimelineCanvas() {
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
 
+  /** Where the blade cuts at pointer x: on a frame boundary, snapping to the playhead when close. */
+  const bladeMs = (x: number): number => {
+    const fps = project?.settings.fps ?? 30
+    let ms = Math.max(0, xToMs(x, pxPerMs, scrollMs))
+    if (useUi.getState().snapping) ms = snapMs(ms, [playhead], 6, pxPerMs)
+    return Math.round(Math.round((ms * fps) / 1000) * (1000 / fps))
+  }
+
   const onPointerDown = (e: PointerEvent): void => {
     if (!project) return
     const { x, y } = local(e)
     canvas.current!.setPointerCapture(e.pointerId)
-    if (y < RULER_H) { drag.current = { kind: 'scrub' }; seekTo(x); return }
+    if (y < RULER_H) {
+      // the scissors on the playhead cut what is under it
+      if (canSplit && Math.hypot(x - msToX(playhead, pxPerMs, scrollMs), y - SCISSORS_Y) <= SCISSORS_R + 1) { splitAtPlayhead(); return }
+      drag.current = { kind: 'scrub' }; seekTo(x); return
+    }
     const cut = badgeAt(cutBadges(project, rowsRef.current, pxPerMs, scrollMs), x, y)
     if (cut) { openMenu(e, transitionMenu(project, cut.id)); return }
     const hit = hitTest(layoutRef.current, rowsRef.current, x, y)
+    if (tool === 'blade') {
+      if (hit) void edit({ type: 'splitItem', id: hit.id, atMs: bladeMs(x) })
+      return
+    }
     if (!hit) { useUi.getState().selectItem(null); if (x > HEADER_W) seekTo(x); return }
     useUi.getState().selectItem(hit.id)
     const track = layoutRef.current.find((i) => i.id === hit.id)!.track
@@ -169,8 +189,16 @@ export function TimelineCanvas() {
     if (!project) return
     const { x, y } = local(e)
     const d = drag.current
+    if (!d && tool === 'blade') {
+      const row = y >= RULER_H ? rowAt(rowsRef.current, y) : null
+      const hit = row ? hitTest(layoutRef.current, rowsRef.current, x, y) : null
+      setBlade(hit && row ? { x: msToX(bladeMs(x), pxPerMs, scrollMs), y: RULER_H + row.y, h: row.h } : null)
+      setCursor(hit ? 'crosshair' : 'default')
+      return
+    }
     if (!d) {
       const hit = y >= RULER_H ? hitTest(layoutRef.current, rowsRef.current, x, y) : null
+      if (y < RULER_H && canSplit && Math.hypot(x - msToX(playhead, pxPerMs, scrollMs), y - SCISSORS_Y) <= SCISSORS_R + 1) { setCursor('pointer'); return }
       if (y >= RULER_H && badgeAt(cutBadges(project, rowsRef.current, pxPerMs, scrollMs), x, y)) { setCursor('pointer'); return }
       setCursor(hit ? (hit.zone === 'body' ? 'grab' : 'ew-resize') : y < RULER_H ? 'pointer' : 'default')
       return
@@ -200,7 +228,6 @@ export function TimelineCanvas() {
     if (cmd) void edit(cmd)
   }
 
-  const canSplit = canAct(project, selected, playhead).split
   const onFreeze = useCallback(() => { const c = selectedClip(); if (c) void freezeAtPlayhead(c.id) }, [])
   const onCrop = useCallback(() => { const c = selectedClip(); if (c) setCropFor(c.id) }, [])
   const fit = useCallback(() => {
@@ -291,6 +318,8 @@ export function TimelineCanvas() {
       else if (k === 'q') deleteSide('left')
       else if (k === 'w') deleteSide('right')
       else if (k === 'n') s.setSnapping(!s.snapping)
+      else if (k === 'b') s.setTool(s.tool === 'blade' ? 'select' : 'blade')
+      else if (k === 'v' || (e.key === 'Escape' && s.tool === 'blade')) s.setTool('select')
       else if (k === 'f') window.dispatchEvent(new CustomEvent('pedit-menu', { detail: 'fullscreenPreview' }))
       else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selectedItemId) deleteSelected()
       else if (e.key === 'k' || e.key === 'K') player?.pause()
@@ -310,7 +339,7 @@ export function TimelineCanvas() {
         <canvas ref={overlay} className="pointer-events-none absolute left-0 top-0" style={{ width, height: H }} />
         <canvas ref={canvas} data-testid="timeline-canvas" style={{ width, height: H, cursor, display: 'block' }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-          onContextMenu={onContextMenu} onWheel={onWheel} onDragOver={onDragOver} onDragLeave={() => setDropHint(null)} onDrop={onDrop} />
+          onPointerLeave={() => setBlade(null)} onContextMenu={onContextMenu} onWheel={onWheel} onDragOver={onDragOver} onDragLeave={() => setDropHint(null)} onDrop={onDrop} />
         {project && project.video.length === 0 && project.audio.length === 0 && project.text.length === 0 && (
           <div className="pointer-events-none -mt-24 text-center text-xs text-neutral-500">Drag clips here from the media panel</div>
         )}

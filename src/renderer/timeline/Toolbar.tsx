@@ -27,6 +27,7 @@ export const Toolbar = memo(function Toolbar({ canSplit, pxPerMs, setZoom, fit, 
   const session = useUi((s) => s.session)
   const sel = useUi((s) => s.selectedItemId)
   const snapping = useUi((s) => s.snapping)
+  const tool = useUi((s) => s.tool)
   const p = session?.view ?? null
   const can = { ...canAct(p, sel, 0), split: canSplit }
   return (
@@ -34,7 +35,12 @@ export const Toolbar = memo(function Toolbar({ canSplit, pxPerMs, setZoom, fit, 
       <Tool id="undo" title="Undo (Ctrl+Z)" disabled={!session?.canUndo} onClick={() => void window.pedit.undo()}>↶</Tool>
       <Tool id="redo" title="Redo (Ctrl+Shift+Z)" disabled={!session?.canRedo} onClick={() => void window.pedit.redo()}>↷</Tool>
       <Sep />
-      <Tool id="tool-split" title="Split (S / Ctrl+B)" disabled={!can.split} onClick={splitAtPlayhead}>⫼</Tool>
+      <Tool id="tool-select" title="Select and move (V)" on={tool === 'select'} onClick={() => useUi.getState().setTool('select')}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M2 1l8 5-3.6.8L8.5 11 7 11.7 4.9 7.5 2 10z" /></svg>
+      </Tool>
+      <Tool id="tool-blade" title="Blade: click a clip to cut it there (B)" on={tool === 'blade'} onClick={() => useUi.getState().setTool(tool === 'blade' ? 'select' : 'blade')}>✂</Tool>
+      <Sep />
+      <Tool id="tool-split" title="Split at the playhead (S / Ctrl+B)" disabled={!can.split} onClick={splitAtPlayhead}>⫼</Tool>
       <Tool id="tool-del-left" title="Delete left (Q)" disabled={!can.split} onClick={() => deleteSide('left')}>⇤</Tool>
       <Tool id="tool-del-right" title="Delete right (W)" disabled={!can.split} onClick={() => deleteSide('right')}>⇥</Tool>
       <Tool id="tool-delete" title="Delete (Del)" disabled={!can.del} onClick={deleteSelected}>🗑</Tool>
