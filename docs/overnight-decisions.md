@@ -12,7 +12,7 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 7. Handy cutting: blade tool (B) and a scissors button on the playhead  ✅
 8. Modern UI: Claude-desktop style chat, custom dropdowns, effort slider, styled sliders  ✅
 9. More Claude tools + guide on how to edit well (research)  ✅
-10. Package (AppImage), full test run  ⏳
+10. Package (AppImage), full test run  ✅ (3 playback-timing tests fail on this machine; see below)
 
 ## Decisions
 (newest last; each says what I chose, why, and what it costs if wrong)
@@ -61,3 +61,9 @@ Branch: `overnight` (from `batch1`). `main` untouched. One commit per finished i
 - Its items live in a ☰ button at the left of the top bar (and top-left of the start screen), with shortcuts shown next to each item.
 - Shortcuts moved to a renderer key handler (`src/renderer/appMenu.ts`): Ctrl+N/O/I/E/W/Q, F11, Ctrl+Shift+I. Window-only actions (quit, full screen, devtools) go to main over `app:window`.
 - Copy/paste in text boxes still works on Linux without menu roles (Chromium handles them).
+
+## Final test run (2026-11-01, midday)
+- Unit tests: 213/213 pass. Typecheck clean. AppImage built (`dist/pedit-0.1.0.AppImage`, 273 MB) and both packaged-app tests pass.
+- End-to-end: 41 of 44 pass. The 3 that fail are playback-timing checks:
+  - "4K120 clip plays smoothly" and "10-minute timeline plays smoothly" show 94% of frames against a 95% bar. **The code from before today's preview changes gets the same 94% on this machine right now**, so this is the machine/session (screen refresh throttling), not a regression. Re-run them on a fresh session: `npx playwright test tests/e2e/preview-*.spec.ts`.
+  - "mixed timeline plays to the end in real time" **sometimes doesn't finish** (still playing after 20 s). It failed once in the full run and twice in six runs earlier, then passed 5 out of 5 and 4 out of 4 on its own, and a probe never caught it. The old code passed it 4 out of 4 here. I could not find the cause, so treat it as an **open issue in the new two-lane player**: if playback ever gets stuck near a cut, that's the one.
