@@ -1,7 +1,8 @@
 import type { ChatEntry, ChatEvent, ClaudeStatus } from '../shared/ipc'
 import { errorText, stepText } from '../shared/chat'
+import { resolve, sep } from 'node:path'
 import type { Editor } from './editor'
-import { ClaudeRunner, buildTurnPrompt, type TurnContext } from './claude/runner'
+import { ClaudeRunner, buildTurnPrompt, readAttachedText, type TurnContext } from './claude/runner'
 
 /** One chat per open project: runs Claude turns against the editor's session and keeps history. */
 export class ChatController {
@@ -45,7 +46,15 @@ export class ChatController {
     let finished: Extract<ChatEvent, { kind: 'done' }> | null = null
     try {
       const story = (await this.editor.getStory()).trim()
-      const ctx: TurnContext = { lastDraft: hadDraft ? 'pending' : this.lastDraft, userEdits: session.takeUserEditsSinceLastTurn(), tags, storyWords: story ? story.split(/\s+/).length : 0 }
+      const fileTexts: NonNullable<TurnContext['fileTexts']> = []
+      const chatFiles = resolve(store.dir, 'chat-files') + sep
+      for (const t of tags) {
+        // only copies attachFiles made: never read a path the window made up
+        if (t.attached !== 'file' || !t.path || !resolve(t.path).startsWith(chatFiles)) continue
+        const got = await readAttachedText(t.path)
+        if (got) fileTexts.push({ name: t.name, ...got })
+      }
+      const ctx: TurnContext = { lastDraft: hadDraft ? 'pending' : this.lastDraft, userEdits: session.takeUserEditsSinceLastTurn(), tags, storyWords: story ? story.split(/\s+/).length : 0, fileTexts }
       this.lastDraft = null
       await store.appendChat({ at: now(), role: 'user', text })
       const prompt = buildTurnPrompt(text, ctx)

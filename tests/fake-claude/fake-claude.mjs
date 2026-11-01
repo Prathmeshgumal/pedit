@@ -50,7 +50,7 @@ async function call(name, args) {
   return text
 }
 const revOf = (t) => Number(/rev (\d+)/.exec(t)[1])
-const mediaLines = (t) => t.split('\n').map((l) => { const [head, folder, when, dur, kind] = l.split(' · '); const [id, ...name] = head.split(' '); return { id, name: name.join(' '), folder: folder.replace('folder ', ''), when, dur, audioOnly: kind === 'audio only' } })
+const mediaLines = (t) => t.split('\n').filter((l) => l.includes(' · ')).map((l) => { const [head, folder, when, dur, kind] = l.split(' · '); const [id, ...name] = head.split(' '); return { id, name: name.join(' '), folder: folder.replace('folder ', ''), when, dur, audioOnly: kind === 'audio only' } })
 
 const tl = await call('get_timeline', {})
 const media = mediaLines(await call('list_media', {}))
@@ -62,6 +62,12 @@ if (mode === 'look') {
   const r = id ? await client.callTool({ name: 'look_at_media', arguments: { mediaId: id } }) : null
   const img = r?.content.find((c) => c.type === 'image')
   out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: img ? `I saw ${Buffer.from(img.data, 'base64').length} bytes` : `no picture (${id ?? 'no attachment'})` }] }, session_id: sessionId })
+} else if (mode === 'files') {
+  // reply in markdown with the attached files and the last line of the first attached text file
+  const names = (/Attached files: ([^\n]*)/.exec(prompt)?.[1] ?? '').split(/, (?=[^,]*\()/).map((s) => s.replace(/ \(.*\)$/, '')).filter(Boolean)
+  const body = /\[file ([^\],]+)[^\]]*\]\n([\s\S]*?)\n\[end of /.exec(prompt)
+  const text = `**Files I got**\n${names.map((x) => `- ${x}`).join('\n')}\n\nLast line of ${body?.[1] ?? 'nothing'}: \`${body?.[2].trim().split('\n').pop() ?? ''}\``
+  out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] }, session_id: sessionId })
 } else if (mode === 'question') {
   out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `You have ${media.length} clips.` }] }, session_id: sessionId })
 } else if (mode === 'demo') {

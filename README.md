@@ -48,7 +48,7 @@ pedit is a CapCut-style editor for Linux, built from scratch. It has a media lib
 - Optimistic concurrency: every edit carries the timeline revision, so stale edits are refused instead of overwriting yours
 - Draft, accept or reject, with a diff of what Claude added, removed and changed
 - An editor guide teaches Claude pacing, cut types and when a transition earns its place. Each project can have its own `story.md` brief
-- Model picker and effort slider. Attach clips or photos to a message, or mention them with `@`
+- Model picker and an Effort button that opens a slider. Drop any file on the chat (clips, photos, music, a story, subtitles, LUTs and more), or mention clips with `@`. Replies are formatted (lists, code, tables)
 
 ## How it works
 

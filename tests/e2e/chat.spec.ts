@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { launch } from './helpers'
@@ -116,15 +116,65 @@ test('a .md file attached in chat becomes the story Claude reads, and shows in t
   await app.close()
 })
 
-test('effort slider and model dropdown in the composer save the setting', async () => {
+test('any file can be attached: it is kept in the project, Claude gets its path and text, and the reply is formatted', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'pedit-e2e-'))
+  const dir = join(base, 'F.pedit')
+  const srt = join(base, 'subs.srt'), cube = join(base, 'warm.cube')
+  writeFileSync(srt, '1\n00:00:01,000 --> 00:00:02,000\nGood morning, Tokyo\n')
+  writeFileSync(cube, 'LUT_3D_SIZE 2\n')
+  const app = await open(dir, 'files')
+  const win = await app.firstWindow()
+  await win.locator('[data-testid=chat-attach-input]').setInputFiles([srt, cube])
+  const chips = win.locator('[data-testid=chat-chip]')
+  await expect(chips).toHaveCount(2)
+  await expect(chips.first()).toHaveAttribute('title', 'Attached file')
+  expect(readFileSync(join(dir, 'chat-files', 'warm.cube'), 'utf8')).toBe('LUT_3D_SIZE 2\n')
+  // non-media files don't land in the media library
+  expect((await pedit<{ real: { media: unknown[] } }>(win, 'getState')).real.media).toHaveLength(0)
+  await say(win, 'use these')
+  const reply = win.locator('[data-testid=chat-msg-assistant]')
+  await expect(reply.locator('strong')).toHaveText('Files I got', { timeout: 20000 })
+  await expect(reply.locator('li')).toHaveText(['subs.srt', 'warm.cube'])
+  await expect(reply.locator('code')).toHaveText('Good morning, Tokyo')
+  await app.close()
+})
+
+test('dragging files anywhere over the chat shows the drop target', async () => {
+  const app = await open(join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'DD.pedit'))
+  const win = await app.firstWindow()
+  const list = win.locator('[data-testid=chat-list]')
+  const dt = await win.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(['x'], 'notes.pdf', { type: 'application/pdf' })); return d })
+  await list.dispatchEvent('dragenter', { dataTransfer: dt })
+  await expect(win.locator('[data-testid=chat-drop]')).toBeVisible()
+  await list.dispatchEvent('dragleave', { dataTransfer: dt })
+  await expect(win.locator('[data-testid=chat-drop]')).toHaveCount(0)
+  await app.close()
+})
+
+test('the Effort button opens a popover with the slider; it and the model dropdown save the setting', async () => {
   const app = await open(join(mkdtempSync(join(tmpdir(), 'pedit-e2e-')), 'EF.pedit'))
   const win = await app.firstWindow()
+  const button = win.locator('[data-testid=claude-effort-button]')
+  const popover = win.locator('[data-testid=claude-effort-popover]')
   const effort = win.locator('[data-testid=claude-effort]')
+  await expect(win.locator('[data-testid=claude-effort-label]')).toHaveText('Auto')
+  // the slider lives in the popover, not in the composer
+  await expect(effort).toHaveCount(0)
+  await button.click()
+  await expect(popover).toBeVisible()
   await expect(effort).toHaveAttribute('data-value', 'default')
-  await effort.focus()
+  await expect(effort).toBeFocused()
   await win.keyboard.press('ArrowRight'); await win.keyboard.press('ArrowRight')
   await expect(effort).toHaveAttribute('data-value', 'medium')
   await expect(win.locator('[data-testid=claude-effort-label]')).toHaveText('Medium')
+  // Escape closes it and gives focus back to the button; a click outside closes it too
+  await win.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+  await expect(button).toBeFocused()
+  await button.click()
+  await expect(popover).toBeVisible()
+  await win.locator('[data-testid=chat-list]').click()
+  await expect(popover).toHaveCount(0)
   await win.locator('[data-testid=claude-model]').click()
   await win.keyboard.press('ArrowDown') // the list opens on the current choice; one down is Opus
   await win.keyboard.press('Enter')

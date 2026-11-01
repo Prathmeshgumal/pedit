@@ -8,12 +8,28 @@ export interface TurnContext {
   lastDraft: 'accepted' | 'rejected' | 'pending' | null
   userEdits: string[]
   /** @-referenced clips; `attached` marks files the user attached to this message (with their kind). */
-  tags: Array<{ name: string; mediaId: string; attached?: 'photo' | 'video' | 'audio' | 'story' }>
+  tags: Array<{ name: string; mediaId: string; attached?: 'photo' | 'video' | 'audio' | 'story' | 'file'; path?: string }>
   /** Words in the project's story.md (0 or missing = no story). */
   storyWords?: number
+  /** Contents of attached text files (subtitles, notes, CSV…), since Claude can't open files itself. */
+  fileTexts?: Array<{ name: string; text: string; truncated: boolean }>
 }
 
-/** The user's message, prefixed with one [editor] line of context Claude can't see otherwise. */
+/** Text files up to this size go into the prompt whole; longer ones are cut. */
+export const ATTACHED_TEXT_LIMIT = 32 * 1024
+
+/** The start of a file as text, or null when it looks binary (a NUL byte or invalid UTF-8 near the start). */
+export async function readAttachedText(path: string, limit = ATTACHED_TEXT_LIMIT): Promise<{ text: string; truncated: boolean } | null> {
+  const buf = await readFile(path).catch(() => null)
+  if (!buf) return null
+  const head = buf.subarray(0, limit)
+  if (head.includes(0)) return null
+  let text: string
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(head, { stream: buf.length > limit }) } catch { return null }
+  return { text, truncated: buf.length > limit }
+}
+
+/** The user's message, prefixed with one [editor] line of context Claude can't see otherwise, and any attached text. */
 export function buildTurnPrompt(userText: string, ctx: TurnContext): string {
   const parts: string[] = []
   if (ctx.lastDraft) parts.push(`Last draft: ${ctx.lastDraft}`)
@@ -21,10 +37,15 @@ export function buildTurnPrompt(userText: string, ctx: TurnContext): string {
   if (ctx.storyWords) parts.push(`The project has a story (${ctx.storyWords} words): call get_story before planning`)
   const story = ctx.tags.find((t) => t.attached === 'story')
   if (story) parts.push(`The user just attached ${story.name} as the story`)
-  const refs = ctx.tags.filter((t) => !t.attached), files = ctx.tags.filter((t) => t.attached && t.attached !== 'story')
+  const refs = ctx.tags.filter((t) => !t.attached)
+  const media = ctx.tags.filter((t) => t.attached && t.attached !== 'story' && t.attached !== 'file')
+  const files = ctx.tags.filter((t) => t.attached === 'file')
   if (refs.length) parts.push(`Referenced clips: ${refs.map((t) => `@${t.name} = ${t.mediaId}`).join(', ')}`)
-  if (files.length) parts.push(`Attached: ${files.map((t) => `${t.name} (${t.mediaId}, ${t.attached})`).join(', ')}`)
-  return parts.length ? `[editor] ${parts.join('. ')}\n${userText}` : userText
+  if (media.length) parts.push(`Attached: ${media.map((t) => `${t.name} (${t.mediaId}, ${t.attached})`).join(', ')}`)
+  if (files.length) parts.push(`Attached files: ${files.map((t) => `${t.name} (${t.path})`).join(', ')}`)
+  const texts = (ctx.fileTexts ?? []).map((f) => `[file ${f.name}${f.truncated ? `, first ${Math.round(ATTACHED_TEXT_LIMIT / 1024)} KB` : ''}]\n${f.text}\n[end of ${f.name}]`)
+  const head = [...(parts.length ? [`[editor] ${parts.join('. ')}`] : []), ...texts]
+  return head.length ? `${head.join('\n')}\n${userText}` : userText
 }
 
 /** Runs the user's own `claude` CLI headless, one turn at a time, and streams its steps. */

@@ -6,7 +6,7 @@ import { emptyProject, type MediaItem } from '@shared/model'
 import { EditSession } from '@shared/session'
 import { seqIds } from '@shared/ids'
 import { startMcpServer, type McpHandle } from '../../src/main/mcp/server'
-import { ClaudeRunner, buildTurnPrompt } from '../../src/main/claude/runner'
+import { ClaudeRunner, buildTurnPrompt, readAttachedText } from '../../src/main/claude/runner'
 import type { RunnerEvent } from '../../src/main/claude/stream'
 
 const FAKE = resolve('tests/fake-claude/fake-claude.mjs')
@@ -113,6 +113,28 @@ describe('buildTurnPrompt', () => {
   it('lists attached files with their media ids and kinds', () => {
     expect(buildTurnPrompt('put this in', { lastDraft: null, userEdits: [], tags: [{ name: 'IMG_1.jpg', mediaId: 'm_000009', attached: 'photo' }, { name: 'shrine.mov', mediaId: 'm_000004' }] }))
       .toBe('[editor] Referenced clips: @shrine.mov = m_000004. Attached: IMG_1.jpg (m_000009, photo)\nput this in')
+  })
+  it('lists other attached files by path and puts text files after the [editor] line', () => {
+    expect(buildTurnPrompt('use these subtitles', { lastDraft: null, userEdits: [], tags: [
+      { name: 'subs.srt', mediaId: '', attached: 'file', path: '/p/chat-files/subs.srt' },
+      { name: 'warm.cube', mediaId: '', attached: 'file', path: '/p/chat-files/warm.cube' }
+    ], fileTexts: [{ name: 'subs.srt', text: '1\n00:00:01,000 --> 00:00:02,000\nHello', truncated: false }] }))
+      .toBe('[editor] Attached files: subs.srt (/p/chat-files/subs.srt), warm.cube (/p/chat-files/warm.cube)\n[file subs.srt]\n1\n00:00:01,000 --> 00:00:02,000\nHello\n[end of subs.srt]\nuse these subtitles')
+  })
+})
+
+describe('readAttachedText', () => {
+  it('reads text, cuts long files, and refuses binary ones', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'pedit-att-'))
+    writeFileSync(join(d, 'a.srt'), 'Hello, नमस्ते')
+    writeFileSync(join(d, 'long.txt'), 'x'.repeat(100))
+    writeFileSync(join(d, 'b.bin'), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]))
+    writeFileSync(join(d, 'c.bin'), Buffer.from([0xff, 0xfe, 0xfd, 0x41]))
+    expect(await readAttachedText(join(d, 'a.srt'))).toEqual({ text: 'Hello, नमस्ते', truncated: false })
+    expect(await readAttachedText(join(d, 'long.txt'), 10)).toEqual({ text: 'x'.repeat(10), truncated: true })
+    expect(await readAttachedText(join(d, 'b.bin'))).toBeNull()
+    expect(await readAttachedText(join(d, 'c.bin'))).toBeNull()
+    expect(await readAttachedText(join(d, 'missing.txt'))).toBeNull()
   })
 })
 void writeFileSync

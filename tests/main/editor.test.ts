@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, copyFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, copyFileSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Editor } from '../../src/main/editor'
@@ -117,6 +117,28 @@ describe('Editor tools for Claude', () => {
     const chips = await ed.attachFiles([f('../story/story.md')])
     expect(chips).toEqual([{ name: 'story.md', mediaId: '', attached: 'story' }])
     expect(await ed.getStory()).toContain('temple bells')
+    expect(ed.state()!.real.media).toHaveLength(0)
+    await ed.close()
+  }, 60000)
+
+  it('keeps any other attached file in chat-files and returns its path; the same file twice is one copy', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'pedit-ed-'))
+    const ed = new Editor(quiet)
+    await ed.newProject(join(base, 'P.pedit'), 'P')
+    const src = join(base, 'look.cube'), other = join(base, 'x', 'look.cube'), notes = join(base, 'notes.pdf')
+    mkdirSync(join(base, 'x'))
+    writeFileSync(src, 'LUT_3D_SIZE 2\n')
+    writeFileSync(other, 'LUT_3D_SIZE 3\n')
+    writeFileSync(notes, '%PDF-1.7')
+    const chips = await ed.attachFiles([src, notes, src, other, join(base, 'x')])
+    const dir = join(base, 'P.pedit', 'chat-files')
+    expect(chips).toEqual([
+      { name: 'look.cube', mediaId: '', attached: 'file', path: join(dir, 'look.cube') },
+      { name: 'notes.pdf', mediaId: '', attached: 'file', path: join(dir, 'notes.pdf') },
+      { name: 'look.cube', mediaId: '', attached: 'file', path: join(dir, 'look-2.cube') }
+    ])
+    expect(readFileSync(join(dir, 'look-2.cube'), 'utf8')).toBe('LUT_3D_SIZE 3\n')
+    expect((await ed.attachFiles([src]))[0].path).toBe(join(dir, 'look.cube'))
     expect(ed.state()!.real.media).toHaveLength(0)
     await ed.close()
   }, 60000)
