@@ -1,7 +1,21 @@
 {
   "name": "pedit",
   "version": "0.1.0",
-  "description": "Claude-operated video editor",
+  "description": "A desktop video editor that Claude can drive through MCP",
+  "keywords": [
+    "video-editor",
+    "electron",
+    "react",
+    "webgl2",
+    "ffmpeg",
+    "mcp",
+    "claude"
+  ],
+  "author": "Prathmesh Gumal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Prathmeshgumal/pedit.git"
+  },
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -36,6 +50,5 @@
     "react-dom": "^19.3.1",
     "zod": "^4.6.7",
     "zustand": "^5.0.16"
-  },
-  "author": "pedit"
+  }
 }
