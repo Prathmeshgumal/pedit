@@ -333,7 +333,7 @@ export function TimelineCanvas() {
   }, [])
 
   return (
-    <div data-testid="timeline" className="panel flex min-h-0 flex-col" style={{ gridColumn: '1 / 4' }}>
+    <div data-testid="timeline" className="panel flex min-h-0 flex-col">
       <Toolbar canSplit={canSplit} pxPerMs={pxPerMs} setZoom={zoomAround} onFreeze={onFreeze} onCrop={onCrop} fit={fit} />
       <div ref={wrap} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <canvas ref={overlay} className="pointer-events-none absolute left-0 top-0" style={{ width, height: H }} />

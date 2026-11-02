@@ -23,6 +23,7 @@
     "build": "electron-vite build",
     "test": "vitest run",
     "e2e": "electron-vite build && playwright test",
+    "e2e:headless": "electron-vite build && PEDIT_E2E_HEADLESS=1 playwright test",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "fixtures": "bash scripts/make-fixtures.sh",
     "fetch-ffmpeg": "bash scripts/fetch-ffmpeg.sh",

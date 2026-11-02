@@ -7,6 +7,7 @@ import { getPlayer } from '../preview/instance'
 import { Select } from '../ui/Select'
 import { Markdown, InlineText } from '../chat/Markdown'
 import { EffortPicker } from '../chat/EffortPicker'
+import { useLayout } from '../layout'
 
 type Item =
   | { kind: 'user'; text: string }
@@ -25,7 +26,7 @@ const SUGGESTIONS = [
 ]
 
 /** Claude's mark: a small sparkle in Claude's orange. */
-function ClaudeMark({ size = 14 }: { size?: number }) {
+export function ClaudeMark({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" className="flex-none text-[#d97757]">
       <path fill="currentColor" d="M8 0.8c.35 0 .62.26.68.6l.5 3.1a2.4 2.4 0 0 0 1.98 1.98l3.1.5a.69.69 0 0 1 0 1.36l-3.1.5a2.4 2.4 0 0 0-1.98 1.98l-.5 3.1a.69.69 0 0 1-1.36 0l-.5-3.1a2.4 2.4 0 0 0-1.98-1.98l-3.1-.5a.69.69 0 0 1 0-1.36l3.1-.5a2.4 2.4 0 0 0 1.98-1.98l.5-3.1A.69.69 0 0 1 8 .8Z" />
@@ -204,12 +205,17 @@ export function ChatPanel() {
   const lastKind = items.length ? items[items.length - 1].kind : 'user'
 
   return (
-    <div data-testid="chat" className="panel relative flex min-h-0 flex-col !p-0" style={{ gridRow: '2 / 4', gridColumn: '4' }}
+    <div data-testid="chat" className="panel relative flex min-h-0 flex-col !p-0"
       onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div className="flex items-center gap-2 border-b border-[#2a2a31] px-3.5 py-2.5">
         <ClaudeMark />
         <span className="text-[13px] font-semibold text-neutral-100">Claude</span>
         {running && <span data-testid="chat-working" className="ml-auto flex items-center gap-1.5 text-[11px] text-neutral-400"><span className="chat-pulse" aria-hidden="true" />Working</span>}
+        <button data-testid="chat-close" title="Hide Claude chat (Ctrl+J)" aria-label="Hide Claude chat"
+          className={`${running ? '' : 'ml-auto '}-mr-1 flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 hover:bg-[#2e2e36] hover:text-neutral-100`}
+          onClick={() => useLayout.getState().setChatOpen(false)}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+        </button>
       </div>
       {status && !status.ok && (
         <div data-testid="claude-banner" className="mx-3 mt-2.5 rounded-lg border border-amber-700/40 bg-amber-900/25 px-3 py-2 text-[11.5px] leading-snug text-amber-100">

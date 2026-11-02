@@ -1,4 +1,5 @@
 import { useUi } from './store'
+import { useLayout } from './layout'
 import { promptDialog, type MenuItem } from './ContextMenu'
 
 const fail = (e: Error): void => useUi.getState().showToast(e.message)
@@ -42,7 +43,9 @@ export async function appMenuItems(): Promise<MenuItem[]> {
     { label: 'Redo', shortcut: 'Ctrl+Shift+Z', onClick: () => void window.pedit.redo() },
     { label: 'Zoom timeline in', shortcut: 'Ctrl+=', sep: true, onClick: () => emit('zoomIn') },
     { label: 'Zoom timeline out', shortcut: 'Ctrl+-', onClick: () => emit('zoomOut') },
-    { label: 'Full-screen preview', shortcut: 'F', onClick: () => emit('fullscreenPreview') }
+    { label: 'Full-screen preview', shortcut: 'F', onClick: () => emit('fullscreenPreview') },
+    { label: useLayout.getState().chatOpen ? 'Hide Claude chat' : 'Show Claude chat', shortcut: 'Ctrl+J', onClick: () => useLayout.getState().toggleChat() },
+    { label: 'Reset layout', hint: 'default panel sizes, chat shown', onClick: () => useLayout.getState().reset() }
   )
   items.push(
     { label: 'Full-screen window', shortcut: 'F11', sep: true, onClick: () => window.pedit.windowAction('toggleFullscreen') },
@@ -67,6 +70,7 @@ export function handleAppShortcut(e: KeyboardEvent): boolean {
     else if (p && k === 'i') run = importMedia
     else if (p && k === 'e') run = () => { if (p.video.length) emit('export') }
     else if (p && k === 'w') run = () => void window.pedit.closeProject()
+    else if (p && k === 'j') run = () => useLayout.getState().toggleChat()
   }
   if (!run) return false
   e.preventDefault()

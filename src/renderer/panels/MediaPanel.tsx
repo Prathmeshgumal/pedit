@@ -122,7 +122,7 @@ export function MediaPanel() {
         ))}
       </div>
       <div className="flex gap-1.5 p-2">
-        <button className="btn flex-1" onClick={() => void pick('files')}>＋ Import files</button>
+        <button className="btn flex-1 truncate whitespace-nowrap" onClick={() => void pick('files')}>＋ Import files</button>
         <button className="btn flex-1" onClick={() => void pick('folder')}>＋ Folder</button>
         <button data-testid="media-more" className="btn" title="More" onClick={(e) => openMenu(e, [
           { label: 'Remove unused media', onClick: async () => {
